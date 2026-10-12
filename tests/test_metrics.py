@@ -22,7 +22,7 @@ def chunk(doc_id: str, token_start: int, n_tokens: int, index: int = 0) -> Chunk
 
 
 def test_full_overlap():
-    gold = frozenset(range(0, 100))
+    gold = frozenset(range(100))
     packed = [chunk("d1", 0, 100)]
     score = score_question([gold], packed, "d1")
     assert score.recall == pytest.approx(1.0)
@@ -31,7 +31,7 @@ def test_full_overlap():
 
 
 def test_partial_overlap():
-    gold = frozenset(range(0, 100))
+    gold = frozenset(range(100))
     packed = [chunk("d1", 50, 100)]  # tokens 50..150
     score = score_question([gold], packed, "d1")
     assert score.recall == pytest.approx(0.5)
@@ -40,7 +40,7 @@ def test_partial_overlap():
 
 
 def test_zero_overlap():
-    gold = frozenset(range(0, 10))
+    gold = frozenset(range(10))
     packed = [chunk("d1", 100, 10)]
     score = score_question([gold], packed, "d1")
     assert score.recall == 0.0
@@ -48,7 +48,7 @@ def test_zero_overlap():
 
 
 def test_empty_retrieval_scores_zero():
-    gold = frozenset(range(0, 10))
+    gold = frozenset(range(10))
     score = score_question([gold], [], "d1")
     assert score.recall == 0.0
     assert score.precision == 0.0
@@ -56,7 +56,7 @@ def test_empty_retrieval_scores_zero():
 
 
 def test_several_annotators_keep_highest_recall():
-    gold_a = frozenset(range(0, 10))
+    gold_a = frozenset(range(10))
     gold_b = frozenset(range(20, 30))
     packed = [chunk("d1", 20, 10)]
     score = score_question([gold_a, gold_b], packed, "d1")
@@ -66,8 +66,8 @@ def test_several_annotators_keep_highest_recall():
 
 
 def test_annotator_tie_goes_to_earlier_then_precision():
-    gold_a = frozenset(range(0, 10))
-    gold_c = frozenset(range(0, 5))
+    gold_a = frozenset(range(10))
+    gold_c = frozenset(range(5))
     packed = [chunk("d1", 0, 10)]
     # annotator 0: recall 1.0, precision 1.0; annotator 1: recall 1.0, precision 0.5
     score = score_question([gold_a, gold_c], packed, "d1")
@@ -75,7 +75,7 @@ def test_annotator_tie_goes_to_earlier_then_precision():
 
 
 def test_other_documents_dilute_precision_but_not_recall():
-    gold = frozenset(range(0, 10))
+    gold = frozenset(range(10))
     packed = [chunk("d1", 0, 10), chunk("d2", 0, 30)]
     score = score_question([gold], packed, "d1")
     assert score.recall == pytest.approx(1.0)
@@ -84,7 +84,7 @@ def test_other_documents_dilute_precision_but_not_recall():
 
 
 def test_disjoint_chunks_of_same_document_union():
-    gold = frozenset(range(0, 20))
+    gold = frozenset(range(20))
     packed = [chunk("d1", 0, 10, index=0), chunk("d1", 10, 10, index=1)]
     score = score_question([gold], packed, "d1")
     assert score.recall == pytest.approx(1.0)

@@ -16,8 +16,8 @@ earlier annotator, then the higher precision.
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass
-from typing import Sequence
 
 from .chunking import Chunk
 

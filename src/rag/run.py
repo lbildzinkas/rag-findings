@@ -18,7 +18,6 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from . import __version__
-
 from .chunking import Chunk, chunk_text, fixed_windows
 from .config import RunConfig, config_hash, config_yaml, load_config
 from .documents import Document
