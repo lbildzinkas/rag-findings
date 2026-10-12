@@ -1,0 +1,5 @@
+# Mirror the sister project's search stack so findings carry back to it
+
+The findings are meant to improve the chunking of the sister project, interview-coach, which already searches with LanceDB hybrid search (BM25 and vector, fused by reciprocal rank fusion), the bge-small-en-v1.5 embedder and the gte-reranker-modernbert-base reranker, all run in-process through sentence-transformers. A chunking that wins on a different stack might not win there.
+
+So the production line here uses the same stack: LanceDB for keyword and vector search, reciprocal rank fusion with k = 60, and gte-reranker-modernbert-base reranking the fused top 30. Embeddings come from bge-small-en-v1.5, the sister project's model, and from nomic-embed-text-v1.5 as a second embedder, because bge-small reads at most 512 tokens and silently truncates longer chunks, and the best chunk size is known to change with the embedder. Keyword-only, vector-only and unreranked hybrid search run as ablations. The experiment code is Python managed with uv, with Chonkie for chunking and ranx for metrics and significance tests; datasets are downloaded by a setup script and never committed.
