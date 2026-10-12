@@ -2,7 +2,12 @@
 
 Each chunk records its document and its character span, plus its token
 index range so metrics can work on token positions. Windows are adjacent
-and non-overlapping, so the chunks of a document tile its text exactly.
+and non-overlapping in tokens: the chunks of a document tile its tokens
+exactly. In characters they tile exactly for single-byte text, which is
+what the tiling test asserts; when a token boundary splits a multi-byte
+character, that character belongs to both adjacent tokens' character
+spans (see rag.tokens.TokenText), so adjacent chunks can share that one
+character.
 """
 
 from __future__ import annotations

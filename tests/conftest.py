@@ -32,6 +32,20 @@ def fake_encoding() -> FakeEncoding:
     return FakeEncoding()
 
 
+@pytest.fixture(autouse=True)
+def no_real_tokenizer(monkeypatch):
+    """Fail loudly when a test path falls back to the real cl100k_base
+    tokenizer instead of an injected offline encoding."""
+
+    def _fetch(*_args, **_kwargs):
+        raise AssertionError(
+            "test would download the real cl100k_base tokenizer; "
+            "inject FakeEncoding instead"
+        )
+
+    monkeypatch.setattr("rag.tokens.get_encoding", _fetch)
+
+
 def make_paper(
     doc_id: str,
     abstract: str,

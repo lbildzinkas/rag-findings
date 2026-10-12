@@ -19,10 +19,6 @@ class Paths:
         return self.root / "data"
 
     @property
-    def qasper(self) -> Path:
-        return self.data / "qasper"
-
-    @property
     def runs(self) -> Path:
         return self.root / "runs"
 

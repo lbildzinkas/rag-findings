@@ -132,9 +132,10 @@ def test_rerun_is_byte_identical(tmp_path):
     assert (tmp_path / "runs" / "tracer" / "questions.jsonl").read_bytes() == first_questions
 
 
-def test_cli_run_command(tmp_path, capsys):
+def test_cli_run_command(tmp_path, capsys, monkeypatch, fake_encoding):
     from rag.cli import main
 
+    monkeypatch.setattr("rag.tokens.get_encoding", lambda: fake_encoding)
     config_path = build_env(tmp_path)
     assert main(["run", str(config_path), "--root", str(tmp_path)]) == 0
     captured = capsys.readouterr()
