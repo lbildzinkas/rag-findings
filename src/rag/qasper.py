@@ -199,14 +199,8 @@ def load_split(split: str, path: Path) -> QasperSplit:
                     )
                 )
             elif any_answerable and (any_figure_table or any_section or any_unanchored):
-                reason = (
-                    FIGURE_OR_TABLE_ONLY
-                    if (any_figure_table or any_section)
-                    else EVIDENCE_UNANCHORED
-                )
-                excluded.append(
-                    ExcludedQuestion(question_id=question_id, doc_id=doc_id, split=split, reason=reason)
-                )
+                reason = FIGURE_OR_TABLE_ONLY if (any_figure_table or any_section) else EVIDENCE_UNANCHORED
+                excluded.append(ExcludedQuestion(question_id=question_id, doc_id=doc_id, split=split, reason=reason))
             else:
                 excluded.append(
                     ExcludedQuestion(question_id=question_id, doc_id=doc_id, split=split, reason=UNANSWERABLE)

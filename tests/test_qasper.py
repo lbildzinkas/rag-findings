@@ -153,10 +153,7 @@ def test_anchor_evidence_direct_cases():
     paragraphs = [p.text for p in doc.paragraphs]
     assert anchor_evidence(PARA_A, spans, paragraphs, []).kind == "paragraph"
     assert anchor_evidence(PARA_A.replace(" rights", "  rights"), spans, paragraphs, []).kind == "paragraph"
-    assert (
-        anchor_evidence("FLOAT SELECTED: Figure 1", spans, paragraphs, ["Figure 1"]).kind
-        == "figure_table"
-    )
+    assert anchor_evidence("FLOAT SELECTED: Figure 1", spans, paragraphs, ["Figure 1"]).kind == "figure_table"
     assert anchor_evidence("S ::: T", spans, paragraphs, []).kind == "section"
     assert anchor_evidence("totally unrelated zebra", spans, paragraphs, []).kind == "unanchored"
     # float prefix stripped before paragraph matching

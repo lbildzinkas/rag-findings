@@ -70,8 +70,7 @@ def ensure_split_files(data_dir: Path, splits: tuple[str, ...]) -> dict[str, Pat
             missing.append(split)
     if missing:
         raise FileNotFoundError(
-            f"missing QASPER split file(s) {sorted(missing)} under {data_dir / 'qasper'}; "
-            "run `uv run rag setup` first"
+            f"missing QASPER split file(s) {sorted(missing)} under {data_dir / 'qasper'}; run `uv run rag setup` first"
         )
     return paths
 
@@ -88,9 +87,7 @@ def download_tarball(tarball: Tarball, dest: Path) -> None:
     size = tmp.stat().st_size
     if size != tarball.size:
         tmp.unlink(missing_ok=True)
-        raise ValueError(
-            f"{tarball.filename}: expected {tarball.size} bytes, downloaded {size}"
-        )
+        raise ValueError(f"{tarball.filename}: expected {tarball.size} bytes, downloaded {size}")
     digest = _sha256_file(tmp)
     if digest != tarball.sha256:
         tmp.unlink(missing_ok=True)
@@ -104,14 +101,11 @@ def verify_tarball(tarball: Tarball, dest: Path) -> bool:
         return False
     if dest.stat().st_size != tarball.size:
         raise ValueError(
-            f"{dest.name}: size {dest.stat().st_size} != pinned {tarball.size}; "
-            "delete the file and re-run setup"
+            f"{dest.name}: size {dest.stat().st_size} != pinned {tarball.size}; delete the file and re-run setup"
         )
     digest = _sha256_file(dest)
     if digest != tarball.sha256:
-        raise ValueError(
-            f"{dest.name}: sha256 mismatch (got {digest}); delete the file and re-run setup"
-        )
+        raise ValueError(f"{dest.name}: sha256 mismatch (got {digest}); delete the file and re-run setup")
     return True
 
 

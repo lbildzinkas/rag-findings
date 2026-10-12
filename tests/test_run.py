@@ -12,18 +12,9 @@ from rag.paths import Paths
 from rag.run import run
 from tests.conftest import FakeEncoding, make_answer, make_paper, make_qa, write_split
 
-PARA_A = (
-    "Kerberos tickets grant authentication rights through a trusted key "
-    "distribution center and session keys."
-)
-PARA_B = (
-    "Renewal windows let clients refresh tickets before expiry without "
-    "re-authenticating against the center."
-)
-PARA_C = (
-    "Photosynthesis converts light energy into chemical energy stored in "
-    "sugar molecules inside chloroplasts."
-)
+PARA_A = "Kerberos tickets grant authentication rights through a trusted key distribution center and session keys."
+PARA_B = "Renewal windows let clients refresh tickets before expiry without re-authenticating against the center."
+PARA_C = "Photosynthesis converts light energy into chemical energy stored in sugar molecules inside chloroplasts."
 
 
 def build_env(root: Path) -> Path:

@@ -38,10 +38,7 @@ def no_real_tokenizer(monkeypatch):
     tokenizer instead of an injected offline encoding."""
 
     def _fetch(*_args, **_kwargs):
-        raise AssertionError(
-            "test would download the real cl100k_base tokenizer; "
-            "inject FakeEncoding instead"
-        )
+        raise AssertionError("test would download the real cl100k_base tokenizer; inject FakeEncoding instead")
 
     monkeypatch.setattr("rag.tokens.get_encoding", _fetch)
 
@@ -56,9 +53,7 @@ def make_paper(
     return {
         "title": f"Paper {doc_id}",
         "abstract": abstract,
-        "full_text": [
-            {"section_name": name, "paragraphs": paragraphs} for name, paragraphs in sections
-        ],
+        "full_text": [{"section_name": name, "paragraphs": paragraphs} for name, paragraphs in sections],
         "figures_and_tables": figures_and_tables or [],
         "qas": qas or [],
     }

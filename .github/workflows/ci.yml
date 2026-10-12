@@ -15,5 +15,9 @@ jobs:
           python-version: "3.12"
       - name: Sync environment
         run: uv sync
+      - name: Lint
+        run: uv run ruff check src tests
+      - name: Format
+        run: uv run ruff format --check src tests
       - name: Unit tests (small committed fixtures only, no dataset or model downloads)
         run: uv run pytest -q

@@ -100,9 +100,7 @@ def _build_chunks(
 def _gold_sets(question, tokenized: dict[str, TokenText]) -> list[frozenset[int]]:
     tokens = tokenized[question.doc_id]
     return [
-        frozenset().union(
-            *(tokens.token_indices_overlapping(span.start, span.end) for span in annotator)
-        )
+        frozenset().union(*(tokens.token_indices_overlapping(span.start, span.end) for span in annotator))
         for annotator in question.annotators
     ]
 
@@ -189,9 +187,7 @@ def run(config_path: Path, paths: Paths, encoding=None) -> RunOutcome:
             ranked = index.search(question.text, cfg.search_depth)
             top_n = cfg.top_n if cfg.view == "production" else max(len(ranked), 1)
             packed = pack([item.chunk for item in ranked], cfg.budget, top_n)
-            score: QuestionScore = score_question(
-                _gold_sets(question, tokenized), packed, question.doc_id
-            )
+            score: QuestionScore = score_question(_gold_sets(question, tokenized), packed, question.doc_id)
             recalls.append(score.recall)
             precisions.append(score.precision)
             records.append(
@@ -249,15 +245,11 @@ def run(config_path: Path, paths: Paths, encoding=None) -> RunOutcome:
             "questions": outcome.n_questions,
             "excluded_by_reason": excluded_by_reason,
             "labelled_spans_verified": spans_verified,
-            "evidence_anchoring": {
-                split.split: split.evidence_counts for split in splits
-            },
+            "evidence_anchoring": {split.split: split.evidence_counts for split in splits},
         },
         "duration_seconds": round(time.monotonic() - started, 3),
     }
-    (run_dir / "manifest.json").write_text(
-        json.dumps(manifest, sort_keys=True, indent=2) + "\n", encoding="utf-8"
-    )
+    (run_dir / "manifest.json").write_text(json.dumps(manifest, sort_keys=True, indent=2) + "\n", encoding="utf-8")
 
     write_result_table(outcome.result_table, cfg, cfg_hash, splits, outcome)
 

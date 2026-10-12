@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from itertools import pairwise
+
 import pytest
 
 from rag.chunking import chunk_text, fixed_windows
@@ -21,7 +23,7 @@ def test_windows_tile_the_document_exactly(fake_encoding):
     chunks = fixed_windows(doc, tokens, 10)
     assert chunks[0].start == 0
     assert chunks[-1].end == len(doc.text)
-    for a, b in zip(chunks, chunks[1:]):
+    for a, b in pairwise(chunks):
         assert a.end == b.start  # no gaps, no overlap
     for chunk in chunks:
         assert chunk.doc_id == "d1"
