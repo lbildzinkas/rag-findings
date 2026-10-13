@@ -188,11 +188,10 @@ def test_incomplete_or_unknown_inputs_fail_loudly(tmp_path: Path):
 
 
 def test_headroom_reads_the_run_directory_the_grid_writer_produces(tmp_path: Path):
-    from tests.conftest import FakeEncoding, make_answer, make_paper, make_qa, write_split
-    from tests.test_grid import P1, P2, P3
-
     from rag.config import parse_grid_config
     from rag.grid import run_grid
+    from tests.conftest import FakeEncoding, make_answer, make_paper, make_qa, write_split
+    from tests.test_grid import P1, P2, P3
 
     grid_config = {
         "kind": "grid",

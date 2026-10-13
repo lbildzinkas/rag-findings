@@ -8,7 +8,7 @@ fair view (no cap). A fixed chunking whose chunk is bigger than the budget
 is not scored at that budget. Retrieval sees only the question text,
 never its query type.
 
-Per-question results go to runs/<run_name>/ (git-ignored) as Parquet, in
+Per-question results go to runs/<dataset>/<run_name>/ (git-ignored) as Parquet, in
 a stable columnar schema that later pipelines extend with more rows
 (`pipeline`, `embedder`) without changing the columns:
 

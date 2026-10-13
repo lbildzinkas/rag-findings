@@ -1,5 +1,5 @@
 """Result tables R2, R3, R4, R2w and R6, rendered from a grid run's
-per-question results (runs/<run_name>/*.parquet).
+per-question results (runs/<dataset>/<run_name>/*.parquet).
 
 Every number is a mean over the included questions, summed with
 math.fsum so the tables do not depend on row order, and printed to four
