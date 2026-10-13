@@ -113,27 +113,6 @@ def gold_token_sets(question, tokenized: dict[str, TokenText]) -> list[tuple[int
     ]
 
 
-def load_qasper(paths: Paths, split_names: tuple[str, ...]) -> tuple[list[QasperSplit], dict[str, Document], int]:
-    """Load the splits and their documents, check question ids are unique
-    and every labelled span round-trips; returns (splits, documents by id,
-    spans verified)."""
-    split_paths = ensure_split_files(paths.data, split_names)
-    splits = [load_split(name, split_paths[name]) for name in sorted(split_paths)]
-    documents = _all_documents(splits)
-
-    seen_ids: set[str] = set()
-    for split in splits:
-        for question in split.questions:
-            if question.question_id in seen_ids:
-                raise ValueError(f"duplicate question id: {question.question_id}")
-            seen_ids.add(question.question_id)
-
-    # every labelled span round-trips: offsets slice back to the quote and
-    # the source hash matches the document's
-    spans_verified = sum(verify_spans(split, documents_by_id=documents) for split in splits)
-    return splits, documents, spans_verified
-
-
 def load_datasets(paths: Paths, sources: tuple[DatasetRef, ...]) -> tuple[list, dict[str, Document], int]:
     """Load every source's splits (QASPER jsons, the Natural Questions
     subset), check ids are unique across them and every labelled span
