@@ -1,4 +1,4 @@
-"""Command line entry point: `rag setup` and `rag run <config>`."""
+"""Command line entry point: `rag setup`, `rag run <config>` and `rag headroom <config>`."""
 
 from __future__ import annotations
 
@@ -32,6 +32,16 @@ def main(argv: list[str] | None = None) -> int:
         help="project root holding data/, runs/ and results/ (default: current directory)",
     )
 
+    headroom_parser = sub.add_parser(
+        "headroom", help="routing headroom, the router gate and the interaction, from grid run results"
+    )
+    headroom_parser.add_argument("config", type=Path, help="path to the headroom config YAML")
+    headroom_parser.add_argument(
+        "--root",
+        default=None,
+        help="project root holding runs/ and results/ (default: current directory)",
+    )
+
     args = parser.parse_args(argv)
     paths = _paths(args)
 
@@ -57,6 +67,12 @@ def main(argv: list[str] | None = None) -> int:
         from .run import run
 
         run(args.config, paths)
+        return 0
+
+    if args.command == "headroom":
+        from .routing import load_headroom_config, run_headroom
+
+        run_headroom(load_headroom_config(args.config), paths)
         return 0
 
     return 2  # pragma: no cover

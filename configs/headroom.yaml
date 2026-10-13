@@ -1,0 +1,22 @@
+kind: headroom
+# grid runs under runs/ whose per-question results are pooled
+runs: [grid]
+scope: collection
+# the production view's top-N cap (the cap-5 side table is not analysed)
+top_n: 8
+# smallest chunk first: the oracle router's tie-break order. Section-aware
+# and small-to-big chunks vary in size up to their 512-token cap, so they
+# rank by that cap, after fixed-512 in config order.
+chunkings: [fixed-64, fixed-128, fixed-256, fixed-512, section-aware, small-to-big, fixed-1024]
+# the smaller chunking each interaction is taken against
+interaction_reference: fixed-128
+# the pre-registered router gate; pipeline is the production line's name in the results
+gate:
+  pipeline: hybrid-rerank
+  datasets: [qasper, nq]
+  budget: 1024
+  min_headroom: 0.05
+  confidence: 0.95
+resamples: 10000
+seed: 0
+run_name: headroom
