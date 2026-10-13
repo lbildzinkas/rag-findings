@@ -19,6 +19,11 @@ class Paths:
         return self.root / "data"
 
     @property
+    def cache(self) -> Path:
+        """Embeddings and reranker scores reused across runs (git-ignored)."""
+        return self.data / "cache"
+
+    @property
     def runs(self) -> Path:
         return self.root / "runs"
 

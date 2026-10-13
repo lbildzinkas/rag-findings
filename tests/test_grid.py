@@ -115,7 +115,7 @@ def test_results_are_columnar_and_cover_the_grid(grid_run):
     assert results.schema.remove_metadata() == RESULTS_SCHEMA
     assert fixed_k.schema.remove_metadata() == FIXED_K_SCHEMA
     assert pq.read_table(run_dir / "questions.parquet").schema.remove_metadata() == QUESTIONS_SCHEMA
-    assert results.schema.metadata[b"rag.schema_version"] == b"1"
+    assert results.schema.metadata[b"rag.schema_version"] == b"2"
     assert results.num_rows == 4 * len(cfg.chunkings) * 2 * len(cfg.budgets) * 3
     assert fixed_k.num_rows == 4 * len(cfg.chunkings) * len(cfg.fixed_k)
 

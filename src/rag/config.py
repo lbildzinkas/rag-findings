@@ -2,9 +2,14 @@
 
 Two kinds: a single-cell run (`RunConfig`: dataset, chunking, pipeline,
 budget, view, seed), and a grid run (`GridConfig`, `kind: grid`: every
-chunking at every budget, in both views and both search scopes). The
-config hash is the sha256 of the config's canonical JSON, so the same
-settings always hash identically whatever the file's formatting.
+chunking at every budget, in both views and both search scopes, under one
+or more retrieval pipelines). The config hash is the sha256 of the
+config's canonical JSON, so the same settings always hash identically
+whatever the file's formatting.
+
+A grid names its pipelines with `pipelines:` (and the embedders the
+vector-based ones use with `embedders:`); the BM25-only form
+`pipeline: bm25` stays valid and keeps its canonical JSON, and so its hash.
 """
 
 from __future__ import annotations
@@ -113,6 +118,9 @@ def _validate(cfg: RunConfig) -> None:
 
 CHUNKING_METHODS = ("fixed", "section_aware", "small_to_big")
 SCOPES = ("collection", "document")
+# the production line first, then its ablations: the order of every table
+PIPELINES = ("production", "hybrid", "vector", "bm25")
+EMBEDDING_PIPELINES = ("production", "hybrid", "vector")
 
 
 @dataclass(frozen=True)
@@ -147,7 +155,7 @@ class ChunkingSpec:
 class GridConfig:
     dataset: str
     splits: tuple[str, ...]
-    pipeline: str
+    pipelines: tuple[str, ...]
     chunkings: tuple[ChunkingSpec, ...]
     budgets: tuple[int, ...]
     top_n: int  # production view
@@ -157,12 +165,33 @@ class GridConfig:
     search_depth: int
     seed: int
     run_name: str
+    embedders: tuple[str, ...] = ()
+    rrf_k: int = 60
+    rerank_depth: int = 30
+
+    @property
+    def bm25_only(self) -> bool:
+        return self.pipelines == ("bm25",)
+
+    @property
+    def pipeline(self) -> str:
+        """A label for the pipelines, used in table titles."""
+        return "bm25" if self.bm25_only else "production line and ablations"
 
     def as_dict(self) -> dict[str, Any]:
+        if self.bm25_only:
+            pipelines: dict[str, Any] = {"pipeline": "bm25"}
+        else:
+            pipelines = {
+                "pipelines": list(self.pipelines),
+                "embedders": list(self.embedders),
+                "rrf_k": self.rrf_k,
+                "rerank_depth": self.rerank_depth,
+            }
         return {
             "kind": "grid",
             "dataset": {"name": self.dataset, "splits": list(self.splits)},
-            "pipeline": self.pipeline,
+            **pipelines,
             "chunkings": [c.as_dict() for c in self.chunkings],
             "budgets": list(self.budgets),
             "top_n": self.top_n,
@@ -198,10 +227,13 @@ def _parse_chunking(raw: dict[str, Any]) -> ChunkingSpec:
 
 def parse_grid_config(raw: dict[str, Any]) -> GridConfig:
     try:
+        if ("pipeline" in raw) == ("pipelines" in raw):
+            raise ValueError("give exactly one of `pipeline` and `pipelines`")
+        pipelines = tuple(raw["pipelines"]) if "pipelines" in raw else (raw["pipeline"],)
         cfg = GridConfig(
             dataset=raw["dataset"]["name"],
             splits=tuple(raw["dataset"]["splits"]),
-            pipeline=raw["pipeline"],
+            pipelines=pipelines,
             chunkings=tuple(_parse_chunking(c) for c in raw["chunkings"]),
             budgets=tuple(int(b) for b in raw["budgets"]),
             top_n=int(raw["top_n"]),
@@ -211,6 +243,9 @@ def parse_grid_config(raw: dict[str, Any]) -> GridConfig:
             search_depth=int(raw.get("search_depth", 1000)),
             seed=int(raw["seed"]),
             run_name=raw.get("run_name", "grid"),
+            embedders=tuple(raw.get("embedders", ())),
+            rrf_k=int(raw.get("rrf_k", 60)),
+            rerank_depth=int(raw.get("rerank_depth", 30)),
         )
     except (KeyError, TypeError) as exc:
         raise ValueError(f"invalid grid config: {exc}") from exc
@@ -224,8 +259,7 @@ def _validate_grid(cfg: GridConfig) -> None:
     known_splits = {"train", "dev", "test"}
     if not cfg.splits or not set(cfg.splits) <= known_splits:
         raise ValueError(f"splits must be a non-empty subset of {sorted(known_splits)}")
-    if cfg.pipeline != "bm25":
-        raise ValueError(f"unknown pipeline: {cfg.pipeline}")
+    _validate_pipelines(cfg)
     names = [c.name for c in cfg.chunkings]
     if not names or len(set(names)) != len(names):
         raise ValueError("chunkings must be a non-empty list with unique names")
@@ -238,6 +272,26 @@ def _validate_grid(cfg: GridConfig) -> None:
         raise ValueError(f"scopes must be distinct values of {list(SCOPES)}, including collection")
     if cfg.search_depth <= 0:
         raise ValueError("search_depth must be positive")
+    smallest = [c.chunk_tokens for c in cfg.chunkings if c.method == "fixed"]
+    smallest += [c.child_tokens for c in cfg.chunkings if c.method == "small_to_big"]
+    if smallest and cfg.search_depth * min(smallest) < cfg.budgets[-1]:
+        raise ValueError(
+            f"search_depth {cfg.search_depth} x {min(smallest)}-token chunks cannot fill the {cfg.budgets[-1]} budget"
+        )
+
+
+def _validate_pipelines(cfg: GridConfig) -> None:
+    from .models import EMBEDDERS
+
+    if not cfg.pipelines or len(set(cfg.pipelines)) != len(cfg.pipelines) or not set(cfg.pipelines) <= set(PIPELINES):
+        raise ValueError(f"pipelines must be distinct values of {list(PIPELINES)}")
+    if len(set(cfg.embedders)) != len(cfg.embedders) or not set(cfg.embedders) <= set(EMBEDDERS):
+        raise ValueError(f"embedders must be distinct values of {sorted(EMBEDDERS)}")
+    needs_embedder = bool(set(cfg.pipelines) & set(EMBEDDING_PIPELINES))
+    if needs_embedder != bool(cfg.embedders):
+        raise ValueError("embedders are required by, and only by, the vector, hybrid and production pipelines")
+    if cfg.rrf_k <= 0 or cfg.rerank_depth <= 0:
+        raise ValueError("rrf_k and rerank_depth must be positive")
 
 
 def config_hash(cfg: RunConfig | GridConfig) -> str:

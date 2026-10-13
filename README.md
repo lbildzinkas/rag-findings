@@ -16,22 +16,31 @@ uv run rag setup && uv run rag run configs/tracer.yaml
 
 Then open `results/qasper/r1-tracer.md`. `setup` downloads the QASPER dev and test tarballs (about 15 MB) into the git-ignored `data/` directory and verifies their sha256 checksums; `run` writes per-question results and a run manifest to the git-ignored `runs/` directory and regenerates the committed result table under `results/`. Unit tests run offline on small committed fixtures: `uv run pytest`.
 
-## BM25 grid (v1)
+## Grid: the production line and its ablations (v1)
 
-Every chunking at every token budget, under BM25 on QASPER: fixed windows of 64, 128, 256, 512 and 1024 tokens (Chonkie's token chunker, cl100k_base, no overlap), section-aware chunks (one per section, split at paragraph boundaries above 512 tokens) and small-to-big (128-token children returning their section-aware parent when it fits the remaining budget); budgets of 128 to 8192 tokens; the production view (top-N cap 8, with a cap-5 side table) and the fair view (no cap); search across the whole collection and within the question's own document.
+Every chunking at every token budget on QASPER: fixed windows of 64, 128, 256, 512 and 1024 tokens (Chonkie's token chunker, cl100k_base, no overlap), section-aware chunks (one per section, split at paragraph boundaries above 512 tokens) and small-to-big (128-token children returning their section-aware parent when it fits the remaining budget); budgets of 128 to 8192 tokens; the production view (top-N cap 8, with a cap-5 side table) and the fair view (no cap); search across the whole collection and within the question's own document.
+
+Each cell runs under four retrieval pipelines, two of them per embedder (bge-small-en-v1.5, 512-token input; nomic-embed-text-v1.5, 8192-token input with its `search_document:` / `search_query:` prefixes, which never count toward a budget):
+
+- the production line: BM25 and vector search fused by reciprocal rank fusion (k = 60), then gte-reranker-modernbert-base reorders the fused top 30; after them the list continues in fused order (the unreranked tail), deep enough to fill the fair view at 8192 tokens;
+- the ablations: hybrid without the reranker, vector search only, and BM25 only.
+
+Small-to-big matches, and the reranker scores, the 128-token children. Vector search is exact (cosine) over a LanceDB table per chunking and embedder, next to the full-text index. Chunk embeddings (keyed by model and chunk span) and reranker scores (keyed by question and chunk) are cached under `data/cache/`, so both scopes and both embedders share them and a re-run does no reranker passes.
 
 ```sh
-uv run rag setup && uv run rag run configs/grid.yaml
+uv run rag setup && uv run rag run configs/grid.yaml --sample 50   # a seeded 50-paper sample, minutes
+uv run rag run configs/grid.yaml                                   # the full run, several hours on an M4 Max
 ```
 
-The run takes a few minutes. It writes per-question results as Parquet under `runs/grid/` (git-ignored; one row per question, chunking, search scope, view, cap and budget, plus fixed-k rows and each question's query type) and regenerates the committed tables:
+`setup` also downloads the pinned model revisions (safetensors weights, tokenizers and configs only, about 1.2 GB) into the git-ignored `data/hf-cache/`; runs then load them offline (`--no-models` skips them). A `--sample` run writes everything, its tables included, under `runs/grid-sample<N>/` and leaves `results/` untouched. The full run writes per-question results as Parquet under `runs/grid/` (git-ignored; one row per question, pipeline, embedder, chunking, search scope, view, cap and budget, plus fixed-k rows and each question's query type), a manifest with the wall time, the truncation shares and the reranker's pass counts, and regenerates the committed tables, each with one block per pipeline and embedder, the production line first:
 
 - `results/qasper/r2-grid.md` (R2): retrieval recall and precision per chunking and budget, production and fair view side by side, plus the cap-5 side table;
 - `results/qasper/r3-grid.md` (R3): retrieval recall per query type (precise, context; mixed counted but left out of the contrast) and the difference between types;
 - `results/qasper/r4-grid.md` (R4): fixed-k hit@k and recall@k at k = 1, 5 and 10, for comparison with the literature only;
-- `results/qasper/r2w-grid.md` (R2w): R2 with search within the question's own document.
+- `results/qasper/r2w-grid.md` (R2w): R2 with search within the question's own document;
+- `results/qasper/r5-grid.md` (R5): pipeline x embedder x chunking at each budget, with each chunking's share of chunks longer than the embedder's input limit (‡, embedded truncated) and how often packing reached the unreranked tail.
 
-"n/a" marks a fixed chunking whose chunk is bigger than the budget; "†" marks production-view cells where the top-N cap, not the budget, limits the retrieved text for at least half of the questions.
+"n/a" marks a fixed chunking whose chunk is bigger than the budget (R5 gives every n/a its reason); "†" marks production-view cells where the top-N cap, not the budget, limits the retrieved text for at least half of the questions; "§" marks production-line cells where packing used the unreranked tail. A BM25-only grid (`pipeline: bm25`) still runs in a few minutes without any model.
 
 ## Reports
 

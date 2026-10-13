@@ -17,11 +17,16 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="rag", description="RAG chunking retrieval experiments")
     sub = parser.add_subparsers(dest="command", required=True)
 
-    setup_parser = sub.add_parser("setup", help="download and verify QASPER v0.3 dev and test")
+    setup_parser = sub.add_parser(
+        "setup", help="download and verify QASPER v0.3 dev and test, and the pinned embedders and reranker"
+    )
     setup_parser.add_argument(
         "--root",
         default=None,
         help="project root holding data/ (default: current directory)",
+    )
+    setup_parser.add_argument(
+        "--no-models", action="store_true", help="skip the model downloads (enough for BM25-only runs)"
     )
 
     run_parser = sub.add_parser("run", help="run a retrieval eval (one cell, or a grid with `kind: grid`)")
@@ -30,6 +35,13 @@ def main(argv: list[str] | None = None) -> int:
         "--root",
         default=None,
         help="project root holding data/, runs/ and results/ (default: current directory)",
+    )
+    run_parser.add_argument(
+        "--sample",
+        type=int,
+        default=None,
+        metavar="N",
+        help="grid runs only: a seeded sample of N papers, with outputs and tables under runs/<run_name>-sampleN/",
     )
 
     args = parser.parse_args(argv)
@@ -41,6 +53,11 @@ def main(argv: list[str] | None = None) -> int:
 
         for line in setup(paths.data):
             print(line)
+        if not args.no_models:
+            from .models import setup_models
+
+            for line in setup_models(paths.data):
+                print(line)
         get_encoding()  # warm the tokenizer cache so runs need no network
         print("setup complete")
         return 0
@@ -52,8 +69,10 @@ def main(argv: list[str] | None = None) -> int:
         if isinstance(cfg, GridConfig):
             from .grid import run_grid
 
-            run_grid(cfg, paths)
+            run_grid(cfg, paths, sample=args.sample)
             return 0
+        if args.sample is not None:
+            parser.error("--sample applies to grid runs only")
         from .run import run
 
         run(args.config, paths)
