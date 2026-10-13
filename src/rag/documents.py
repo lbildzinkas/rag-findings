@@ -15,12 +15,17 @@ from .tokens import sha256_text
 
 @dataclass(frozen=True)
 class Paragraph:
-    """One paragraph of the canonical text: [start, end) plus its section."""
+    """One paragraph of the canonical text: [start, end) plus its section.
+
+    `section_index` numbers the document's sections in order (the abstract
+    is 0), so two sections that happen to share a name stay apart.
+    """
 
     start: int
     end: int
     text: str
     section: str
+    section_index: int = 0
 
 
 @dataclass(frozen=True)
@@ -43,23 +48,23 @@ def build_document(doc_id: str, abstract: str, sections: list[tuple[str, list[st
     `sections` is a list of (section_name, paragraphs). Empty strings are
     skipped; paragraphs are separated by blank lines.
     """
-    parts: list[tuple[str, str]] = []
+    parts: list[tuple[str, int, str]] = []
     if abstract:
-        parts.append(("Abstract", abstract))
-    for section_name, paragraphs in sections:
+        parts.append(("Abstract", 0, abstract))
+    for section_index, (section_name, paragraphs) in enumerate(sections, start=1):
         for para in paragraphs:
             if para:
-                parts.append((section_name, para))
+                parts.append((section_name, section_index, para))
     paragraphs: list[Paragraph] = []
     pos = 0
     pieces: list[str] = []
-    for section_name, para in parts:
+    for section_name, section_index, para in parts:
         if pieces:
             pieces.append("\n\n")
             pos += 2
         start = pos
         end = pos + len(para)
         pieces.append(para)
-        paragraphs.append(Paragraph(start=start, end=end, text=para, section=section_name))
+        paragraphs.append(Paragraph(start=start, end=end, text=para, section=section_name, section_index=section_index))
         pos = end
     return Document(doc_id=doc_id, text="".join(pieces), paragraphs=tuple(paragraphs))

@@ -77,7 +77,7 @@ _Avoid_: judge, evaluator, scorer
 ### Routing
 
 **Query type**:
-Whether a question is precise (its labelled spans sit in one passage) or context (they spread over several), decided from the labels in hindsight and never available to a router.
+Whether a question is precise (every usable annotation cites one passage), context (every one cites several) or mixed (otherwise), decided from the labels in hindsight and never available to a router.
 _Avoid_: question category, intent, query class
 
 **Best single chunking**:

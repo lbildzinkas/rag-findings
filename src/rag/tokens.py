@@ -88,11 +88,19 @@ class TokenText:
             byte_start = byte_end
         if byte_start != len(data):
             raise ValueError("tokenizer did not tile the text exactly")
+        self.encoding = enc
         self.token_ids = ids
         self.offsets = offsets
+        self._starts = [s for s, _ in offsets]
 
     def __len__(self) -> int:
         return len(self.token_ids)
+
+    def token_at_char(self, char: int) -> int:
+        """Index of the first token starting at or after character `char`
+        (len(self) when none does): the token boundary a character boundary
+        maps to."""
+        return bisect_left(self._starts, char)
 
     def token_indices_overlapping(self, start: int, end: int) -> frozenset[int]:
         """Indices of tokens whose character span intersects [start, end)."""
