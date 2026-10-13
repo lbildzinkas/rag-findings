@@ -136,5 +136,5 @@ top_n: 8
 | small-to-big | 4096 | 0.3792 | 0.4901 | +0.1109 | 0.4237 | 0.5370 | +0.1133 |
 | small-to-big | 8192 | 0.3792 | 0.4901 | +0.1109 | 0.4823 | 0.5948 | +0.1125 |
 
-Precise: every usable annotation cites one passage; context: every one cites several; mixed: otherwise. Mixed questions count in the means of R2 but not in this contrast.
+Query types are assigned from the labels: for Natural Questions, short answer means precise and long-answer-only means context; for QASPER, precise means every usable annotation cites one passage, context that every one cites several and mixed otherwise (only that rule produces mixed questions, which count in the means of R2 but not in this contrast).
 n/a: a fixed chunking whose chunk is bigger than the budget is not scored at that budget.

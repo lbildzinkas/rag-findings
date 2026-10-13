@@ -221,8 +221,10 @@ def _r3(cfg: GridConfig, cells: dict[tuple, _Cell], header: list[str]) -> str:
     lines += [
         "",
         (
-            f"Precise: every usable annotation cites one passage; context: every one cites several; {MIXED}: "
-            "otherwise. Mixed questions count in the means of R2 but not in this contrast."
+            "Query types are assigned from the labels: for Natural Questions, short answer means precise and "
+            "long-answer-only means context; for QASPER, precise means every usable annotation cites one passage, "
+            f"context that every one cites several and {MIXED} otherwise (only that rule produces mixed questions, "
+            "which count in the means of R2 but not in this contrast)."
         ),
         f"{NA}: a fixed chunking whose chunk is bigger than the budget is not scored at that budget.",
         "",

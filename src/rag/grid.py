@@ -314,7 +314,10 @@ def run_grid(cfg: GridConfig, paths: Paths, encoding=None) -> GridOutcome:
                     tuple(
                         sorted(
                             frozenset().union(
-                                *(tokenized[question.doc_id].token_indices_overlapping(s.start, s.end) for s in annotator)
+                                *(
+                                    tokenized[question.doc_id].token_indices_overlapping(s.start, s.end)
+                                    for s in annotator
+                                )
                             )
                         )
                     )
