@@ -1,6 +1,6 @@
 # R7 - routing headroom and the router gate
 
-Config hash: `bb042947b42466d59622bb462f1d501a3cbffe130b01f8c78d29c7a7335ba80d`
+Config hash: `1ed161605655c1535133d7529febf4a25c2e7cedba03b2ce6f8ff7671ee9edbc`
 
 ## Config
 
@@ -26,7 +26,7 @@ kind: headroom
 resamples: 10000
 run_name: headroom
 runs:
-- grid
+- qasper/grid
 scope: collection
 seed: 0
 top_n: 8
@@ -36,7 +36,7 @@ top_n: 8
 
 | run | run config hash |
 |---|---|
-| grid | `b1a07e4a65f57e48f777369cd0a5dbbd26a4152deeeb6a73e148dd813e97aa9f` |
+| qasper/grid | `b1a07e4a65f57e48f777369cd0a5dbbd26a4152deeeb6a73e148dd813e97aa9f` |
 
 | dataset | documents | precise | context | mixed | questions |
 |---|---|---|---|---|---|

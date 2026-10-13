@@ -22,7 +22,7 @@ BUDGETS = [32, 64]
 
 CONFIG = {
     "kind": "headroom",
-    "runs": ["grid"],
+    "runs": ["qasper/grid"],
     "scope": "collection",
     "top_n": 8,
     "chunkings": CHUNKINGS,
@@ -94,7 +94,7 @@ FULL = [("bm25", None), ("hybrid-rerank", "e1"), ("hybrid-rerank", "e2")]
 
 
 def test_gate_verdict_per_embedder_on_pooled_results(tmp_path: Path):
-    write_results(tmp_path / "runs" / "grid", {"qasper": 30, "nq": 30}, FULL)
+    write_results(Paths(root=tmp_path).run_dir("grid", "qasper"), {"qasper": 30, "nq": 30}, FULL)
     cfg = parse_headroom_config(CONFIG)
     results = analyse(cfg, load_results(cfg, Paths(root=tmp_path)))
 
@@ -116,7 +116,7 @@ def test_gate_verdict_per_embedder_on_pooled_results(tmp_path: Path):
 
 
 def test_side_table_and_within_document_rows_are_ignored(tmp_path: Path):
-    write_results(tmp_path / "runs" / "grid", {"qasper": 20}, [("hybrid-rerank", "e2")])
+    write_results(Paths(root=tmp_path).run_dir("grid", "qasper"), {"qasper": 20}, [("hybrid-rerank", "e2")])
     cfg = parse_headroom_config(CONFIG)
     results = analyse(cfg, load_results(cfg, Paths(root=tmp_path)))
     # only collection-search rows at top-N 8 and the fair view carry non-zero recall
@@ -126,7 +126,7 @@ def test_side_table_and_within_document_rows_are_ignored(tmp_path: Path):
 
 
 def test_bm25_only_results_say_the_gate_is_not_judged(tmp_path: Path):
-    write_results(tmp_path / "runs" / "grid", {"qasper": 20}, [("bm25", None)])
+    write_results(Paths(root=tmp_path).run_dir("grid", "qasper"), {"qasper": 20}, [("bm25", None)])
     cfg = parse_headroom_config(CONFIG)
     outcome = run_headroom(cfg, Paths(root=tmp_path))
     assert outcome.verdict[0].startswith("**Gate not judged:**")
@@ -136,14 +136,14 @@ def test_bm25_only_results_say_the_gate_is_not_judged(tmp_path: Path):
 
 
 def test_missing_gate_dataset_makes_the_verdict_provisional(tmp_path: Path):
-    write_results(tmp_path / "runs" / "grid", {"qasper": 20}, FULL)
+    write_results(Paths(root=tmp_path).run_dir("grid", "qasper"), {"qasper": 20}, FULL)
     cfg = parse_headroom_config(CONFIG)
     verdict = gate_verdict(cfg, analyse(cfg, load_results(cfg, Paths(root=tmp_path))))
     assert verdict[1].startswith("**Provisional:**") and "lack nq" in verdict[1]
 
 
 def test_same_seed_gives_byte_identical_tables(tmp_path: Path):
-    write_results(tmp_path / "runs" / "grid", {"qasper": 25, "nq": 20}, FULL)
+    write_results(Paths(root=tmp_path).run_dir("grid", "qasper"), {"qasper": 25, "nq": 20}, FULL)
     config = tmp_path / "headroom.yaml"
     import yaml
 
@@ -170,21 +170,78 @@ def test_same_seed_gives_byte_identical_tables(tmp_path: Path):
 
 
 def test_incomplete_or_unknown_inputs_fail_loudly(tmp_path: Path):
-    write_results(tmp_path / "runs" / "grid", {"qasper": 10}, [("bm25", None)])
+    write_results(Paths(root=tmp_path).run_dir("grid", "qasper"), {"qasper": 10}, [("bm25", None)])
     cfg = parse_headroom_config({**CONFIG, "chunkings": CHUNKINGS[:-1]})
     with pytest.raises(ValueError, match="not in the config's size order"):
         load_results(cfg, Paths(root=tmp_path))
 
-    table = pq.read_table(tmp_path / "runs" / "grid" / "results.parquet")
+    table = pq.read_table(Paths(root=tmp_path).run_dir("grid", "qasper") / "results.parquet")
     keep = [
         i
         for i, (q, p) in enumerate(zip(table["question_id"].to_pylist(), table["chunking"].to_pylist(), strict=True))
         if not (q == "qasper-q0" and p == "fixed-32")
     ]
-    pq.write_table(table.take(keep), tmp_path / "runs" / "grid" / "results.parquet")
+    pq.write_table(table.take(keep), Paths(root=tmp_path).run_dir("grid", "qasper") / "results.parquet")
     cfg = parse_headroom_config(CONFIG)
     with pytest.raises(ValueError, match="scored for only some questions"):
         analyse(cfg, load_results(cfg, Paths(root=tmp_path)))
+
+
+def test_headroom_reads_the_run_directory_the_grid_writer_produces(tmp_path: Path):
+    from tests.conftest import FakeEncoding, make_answer, make_paper, make_qa, write_split
+    from tests.test_grid import P1, P2, P3
+
+    from rag.config import parse_grid_config
+    from rag.grid import run_grid
+
+    grid_config = {
+        "kind": "grid",
+        "dataset": {"name": "qasper", "splits": ["dev"]},
+        "pipeline": "bm25",
+        "chunkings": [
+            {"name": "fixed-16", "method": "fixed", "chunk_tokens": 16},
+            {"name": "section-aware", "method": "section_aware", "max_tokens": 128},
+        ],
+        "budgets": [16, 32],
+        "top_n": 2,
+        "side_top_n": 1,
+        "scopes": ["collection"],
+        "fixed_k": [1],
+        "search_depth": 50,
+        "seed": 0,
+        "run_name": "grid",
+    }
+    # every document carries a precise and a context question, so no
+    # bootstrap resample draws an empty query type
+    dev = {
+        f"paper{i}": make_paper(
+            f"paper{i}",
+            f"Paper {i} abstract about tickets.",
+            [("Intro", [P1, P2]), ("More", [P3])],
+            qas=[
+                make_qa(f"qa{i}p", f"tickets keys service {i}", [make_answer(evidence=[P1])]),
+                make_qa(f"qa{i}c", f"tickets renewal trust {i}", [make_answer(evidence=[P2, P3])]),
+            ],
+        )
+        for i in range(6)
+    }
+    write_split(tmp_path / "data" / "qasper" / "qasper-dev-v0.3.json", dev)
+    grid_cfg = parse_grid_config(grid_config)
+    run_grid(grid_cfg, Paths(root=tmp_path), encoding=FakeEncoding())
+
+    cfg = parse_headroom_config(
+        {
+            **CONFIG,
+            "top_n": grid_config["top_n"],
+            "runs": [f"{grid_cfg.dataset}/{grid_cfg.run_name}"],
+            "chunkings": [spec["name"] for spec in grid_config["chunkings"]],
+            "gate": {**CONFIG["gate"], "pipeline": "bm25", "datasets": ["qasper"], "budget": 32},
+            "resamples": 50,
+        }
+    )
+    outcome = run_headroom(cfg, Paths(root=tmp_path))
+    assert outcome.verdict[0].startswith("Judged on the production line (`bm25`)")
+    assert (tmp_path / "results" / "routing" / "r7-headroom.md").is_file()
 
 
 @pytest.mark.parametrize(

@@ -24,7 +24,7 @@ Every chunking at every token budget, under BM25 on QASPER: fixed windows of 64,
 uv run rag setup && uv run rag run configs/grid.yaml
 ```
 
-The run takes a few minutes. It writes per-question results as Parquet under `runs/grid/` (git-ignored; one row per question, chunking, search scope, view, cap and budget, plus fixed-k rows and each question's query type) and regenerates the committed tables:
+The run takes a few minutes. It writes per-question results as Parquet under `runs/<dataset>/<run_name>/` (git-ignored; one row per question, chunking, search scope, view, cap and budget, plus fixed-k rows and each question's query type) and regenerates the committed tables:
 
 - `results/qasper/r2-grid.md` (R2): retrieval recall and precision per chunking and budget, production and fair view side by side, plus the cap-5 side table;
 - `results/qasper/r3-grid.md` (R3): retrieval recall per query type (precise, context; mixed counted but left out of the contrast) and the difference between types;
