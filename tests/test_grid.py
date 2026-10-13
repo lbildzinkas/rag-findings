@@ -116,9 +116,7 @@ def test_query_types_are_stored_per_question_and_counted_in_r3(grid_run):
 def test_manifest_accumulates_query_types_per_dataset_across_splits(grid_run):
     _, outcome, root = grid_run
     manifest = json.loads((run_dir_of(root) / "manifest.json").read_text())
-    assert manifest["counts"]["query_types_by_dataset"] == {
-        "qasper": {"precise": 2, "context": 1, "mixed": 1}
-    }
+    assert manifest["counts"]["query_types_by_dataset"] == {"qasper": {"precise": 2, "context": 1, "mixed": 1}}
     summed = {t: sum(c[t] for c in manifest["counts"]["query_types_by_dataset"].values()) for t in QUERY_TYPES}
     assert summed == manifest["counts"]["query_types"] == outcome.query_types
 

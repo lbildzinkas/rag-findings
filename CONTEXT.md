@@ -77,7 +77,7 @@ _Avoid_: judge, evaluator, scorer
 ### Routing
 
 **Query type**:
-Whether a question is precise (every usable annotation cites one passage), context (every one cites several) or mixed (otherwise), decided from the labels in hindsight and never available to a router.
+Whether a question is precise, context or mixed, decided from the labels in hindsight and never available to a router: for Natural Questions, short answer means precise and long-answer-only means context; for QASPER, precise means every usable annotation cites one passage, context that every one cites several, and mixed otherwise (only that rule produces mixed questions).
 _Avoid_: question category, intent, query class
 
 **Best single chunking**:
