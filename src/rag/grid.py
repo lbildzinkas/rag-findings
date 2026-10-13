@@ -13,7 +13,8 @@ a stable columnar schema that later pipelines extend with more rows
 (`pipeline`, `embedder`) without changing the columns:
 
 - questions.parquet: one row per question, with its query type and,
-  for Natural Questions, whether it has a short-answer span;
+  for Natural Questions, whether it is a precise question with a
+  short-answer span;
 - results.parquet: one row per question x chunking x scope x view x top-N
   cap x budget, with retrieval recall and precision (null when not
   scored), whether the top-N cap bound, and the short-answer span recall
@@ -44,7 +45,7 @@ from .metrics import score_fixed_k, score_question
 from .packing import pack, pack_small_to_big
 from .paths import Paths
 from .qasper import Question
-from .query_type import QUERY_TYPES
+from .query_type import PRECISE, QUERY_TYPES
 from .retrieval import BM25Index
 from .run import dataset_split_hashes, excluded_counts, gold_token_sets, library_versions, load_datasets
 from .tables import write_tables
@@ -61,7 +62,7 @@ QUESTIONS_SCHEMA = pa.schema(
         ("query_type", pa.string()),
         ("annotators", pa.int32()),
         ("passages", pa.list_(pa.int32())),
-        ("short_answer", pa.bool_()),  # NQ questions with a short-answer span
+        ("short_answer", pa.bool_()),  # NQ precise questions with a short-answer span
     ]
 )
 
@@ -296,6 +297,7 @@ def run_grid(cfg: GridConfig, paths: Paths, encoding=None) -> GridOutcome:
             passages = [len(annotator) for annotator in question.annotators]
             qtype = question_query_type(question)
             query_types[qtype] += 1
+            short_scored = qtype == PRECISE and bool(question.short_annotators)
             questions.add(
                 dataset=split.dataset,
                 split=question.split,
@@ -304,19 +306,23 @@ def run_grid(cfg: GridConfig, paths: Paths, encoding=None) -> GridOutcome:
                 query_type=qtype,
                 annotators=len(passages),
                 passages=passages,
-                short_answer=bool(question.short_annotators) or None,
+                short_answer=short_scored or None,
             )
             gold = gold_token_sets(question, tokenized)
-            short_gold = [
-                tuple(
-                    sorted(
-                        frozenset().union(
-                            *(tokenized[question.doc_id].token_indices_overlapping(s.start, s.end) for s in annotator)
+            short_gold = (
+                [
+                    tuple(
+                        sorted(
+                            frozenset().union(
+                                *(tokenized[question.doc_id].token_indices_overlapping(s.start, s.end) for s in annotator)
+                            )
                         )
                     )
-                )
-                for annotator in question.short_annotators
-            ]
+                    for annotator in question.short_annotators
+                ]
+                if short_scored
+                else []
+            )
             _score_question(cfg, question, split.dataset, qtype, gold, short_gold, chunkings, results, fixed_k)
 
     questions.write(run_dir / "questions.parquet")

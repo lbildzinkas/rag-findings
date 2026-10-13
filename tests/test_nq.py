@@ -260,8 +260,14 @@ def corpus() -> list[dict]:
         make_example("q-short", "how many senators are there", PAGE, five([MEMBERS_P] * 3, shorts=[HUNDRED])),
         # yes/no precise: 3 long answers, a yes mark, no short span
         make_example("q-yesno", "is the senate large", PAGE, five([LEADERS_P] * 3, yes_no=1)),
-        # long-answer-only: 2 long answers on paragraphs, no short answer anywhere
-        make_example("q-long", "describe senate leadership", PAGE, five([LEADERS_P, MEMBERS_P])),
+        # long-answer-only with a stray single-annotator short span: still context,
+        # and the span must stay out of R6's scored population
+        make_example(
+            "q-long",
+            "describe senate leadership",
+            PAGE,
+            [{"long": LEADERS_P, "short": [HUNDRED]}, {"long": MEMBERS_P}, {}, {}, {}],
+        ),
         # a second long-answer-only question, so per-type sampling has room
         make_example("q-long2", "explain membership rules", PAGE, five([MEMBERS_P, LEADERS_P])),
         # table long answers only: excluded
@@ -469,12 +475,13 @@ def test_load_nq_builds_documents_questions_and_spans(tmp_path):
     assert len(short.short_annotators) == 2
     assert short.short_annotators[0][0].quote == "100"
 
-    assert by_id["q-long"].query_type == CONTEXT
-    assert by_id["q-long"].short_annotators == ()
+    assert by_id["q-long"].query_type == CONTEXT  # one stray short span is not a short answer
+    assert len(by_id["q-long"].short_annotators) == 1
+    assert by_id["q-long"].short_annotators[0][0].quote == "100"
 
     # every labelled span round-trips, long and short:
-    # q-short 3 long + 2 short, q-yesno 3, q-long 2, q-long2 2
-    assert verify_spans(split, documents) == 12
+    # q-short 3 long + 2 short, q-yesno 3, q-long 2 long + 1 short, q-long2 2
+    assert verify_spans(split, documents) == 13
 
 
 def test_load_nq_rejects_ids_missing_from_the_dev_config(tmp_path):
@@ -542,6 +549,8 @@ def test_nq_grid_stores_types_and_short_flags(nq_grid):
         "q-long": "context",
         "q-long2": "context",
     }
+    # q-long carries a stray single-annotator short span but is context:
+    # only precise questions with a span get the flag
     assert dict(zip(questions["question_id"], questions["short_answer"], strict=True)) == {
         "q-short": True,
         "q-yesno": None,
@@ -550,13 +559,14 @@ def test_nq_grid_stores_types_and_short_flags(nq_grid):
     }
 
 
-def test_nq_grid_scores_short_recall_only_where_spans_exist(nq_grid):
+def test_nq_grid_scores_short_recall_only_for_precise_questions(nq_grid):
     _, _, root = nq_grid
     results = pq.read_table(root / "runs" / "nq" / "grid" / "results.parquet").to_pylist()
     for row in results:
         if row["question_id"] == "q-short" and row["scored"]:
             assert row["short_recall"] is not None and 0.0 <= row["short_recall"] <= 1.0
         else:
+            # q-long is context with a single-annotator short span: not scored for R6
             assert row["short_recall"] is None
 
 
@@ -585,6 +595,36 @@ def test_nq_tables_cover_query_type_counts_and_r6(nq_grid):
     for name in ("r2", "r3", "r4", "r6"):
         table = (root / "results" / "nq" / f"{name}-grid.md").read_text(encoding="utf-8")
         assert table_rows(table, "## Questions") == [["precise", "2"], ["context", "2"], ["mixed", "0"], ["total", "4"]]
+
+
+def test_r6_covers_the_scored_population_only(nq_grid):
+    """R6's means, cap-binds share and dagger run over the precise
+    questions with a short-answer span, not over all questions."""
+    cfg, _, root = nq_grid
+    results = pq.read_table(root / "runs" / "nq" / "grid" / "results.parquet").to_pylist()
+    r6 = (root / "results" / "nq" / "r6-grid.md").read_text(encoding="utf-8")
+    rows = {(r[0], int(r[1])): r for r in table_rows(r6, "## Short-answer span recall")}
+    for spec in cfg.chunkings:
+        for budget in cfg.budgets:
+            prod = [
+                r
+                for r in results
+                if r["chunking"] == spec.name
+                and r["budget"] == budget
+                and r["scope"] == "collection"
+                and r["view"] == "production"
+                and r["top_n"] == cfg.top_n
+            ]
+            row = rows[(spec.name, budget)]
+            if not prod[0]["scored"]:
+                assert row[2:] == ["n/a", "n/a", "n/a"]
+                continue
+            scored = [r for r in prod if r["short_recall"] is not None]
+            assert {r["question_id"] for r in scored} == {"q-short"}  # q-long's stray span stays out
+            share = sum(1 for r in scored if r["cap_bound"]) / len(scored)
+            assert row[4] == f"{share:.4f}"
+            mean = sum(r["short_recall"] for r in scored) / len(scored)
+            assert row[2] == f"{mean:.4f}" + ("†" if share >= 0.5 else "")
 
 
 def test_nq_tables_regenerate_byte_identically(nq_grid):

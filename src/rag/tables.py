@@ -56,6 +56,7 @@ class _Cell:
     precision: list[float] = field(default_factory=list)
     short_recall: list[float] = field(default_factory=list)
     cap_bound: list[bool] = field(default_factory=list)
+    short_cap_bound: list[bool] = field(default_factory=list)
     recall_by_type: dict[str, list[float]] = field(default_factory=lambda: defaultdict(list))
 
 
@@ -95,6 +96,8 @@ def _cells(results: dict[str, list]) -> dict[tuple, _Cell]:
         cell.precision.append(precision)
         if short_recall is not None:
             cell.short_recall.append(short_recall)
+            if cap_bound is not None:
+                cell.short_cap_bound.append(cap_bound)
         cell.recall_by_type[qtype].append(recall)
         if cap_bound is not None:
             cell.cap_bound.append(cap_bound)
@@ -132,19 +135,20 @@ def _header(title: str, cfg: GridConfig, cfg_hash: str, dataset_hashes: dict[str
     return lines
 
 
-def _metric(cell: _Cell, values: list[float], capped: bool) -> str:
+def _metric(cell: _Cell, values: list[float], capped: bool, bound: list[bool] | None = None) -> str:
     if not cell.scored:
         return NA
-    mark = CAP_MARK if capped and _cap_share(cell) >= CAP_MARK_SHARE else ""
+    share = _cap_share(cell.cap_bound if bound is None else bound)
+    mark = CAP_MARK if capped and share >= CAP_MARK_SHARE else ""
     return _fmt(_mean(values)) + mark
 
 
-def _cap_share(cell: _Cell) -> float:
-    return _mean([1.0 if b else 0.0 for b in cell.cap_bound])
+def _cap_share(bound: list[bool]) -> float:
+    return _mean([1.0 if b else 0.0 for b in bound])
 
 
-def _cap_cell(cell: _Cell) -> str:
-    return _fmt(_cap_share(cell)) if cell.scored else NA
+def _cap_cell(cell: _Cell, bound: list[bool] | None = None) -> str:
+    return _fmt(_cap_share(cell.cap_bound if bound is None else bound)) if cell.scored else NA
 
 
 def _r2(cfg: GridConfig, cells: dict[tuple, _Cell], scope: str, header: list[str]) -> str:
@@ -277,8 +281,8 @@ def _r6(cfg: GridConfig, cells: dict[tuple, _Cell], header: list[str], n_short: 
             prod = cells[("collection", spec.name, "production", cfg.top_n, budget)]
             fair = cells[("collection", spec.name, "fair", None, budget)]
             lines.append(
-                f"| {spec.name} | {budget} | {_metric(prod, prod.short_recall, True)} | "
-                f"{_metric(fair, fair.short_recall, False)} | {_cap_cell(prod)} |"
+                f"| {spec.name} | {budget} | {_metric(prod, prod.short_recall, True, prod.short_cap_bound)} | "
+                f"{_metric(fair, fair.short_recall, False)} | {_cap_cell(prod, prod.short_cap_bound)} |"
             )
     lines += [
         "",
