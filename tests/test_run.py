@@ -89,7 +89,7 @@ def test_end_to_end_run(tmp_path):
     assert "mean retrieval precision" in r1
 
     # per-question results: packing respects budget and cap
-    lines = (tmp_path / "runs" / "tracer" / "questions.jsonl").read_text().splitlines()
+    lines = (tmp_path / "runs" / "qasper" / "tracer" / "questions.jsonl").read_text().splitlines()
     records = [json.loads(line) for line in lines]
     assert len(records) == outcome.n_questions
     for record in records:
@@ -104,7 +104,7 @@ def test_end_to_end_run(tmp_path):
     assert by_id["qb1"]["recall"] > 0.3
     assert all(p["doc_id"] == "paperB" for p in by_id["qb1"]["packed"])
 
-    manifest = json.loads((tmp_path / "runs" / "tracer" / "manifest.json").read_text())
+    manifest = json.loads((tmp_path / "runs" / "qasper" / "tracer" / "manifest.json").read_text())
     assert manifest["config_hash"] == outcome.config_hash
     assert set(manifest["datasets"]) == {"dev", "test"}
     assert manifest["versions"]["lancedb"]
@@ -117,10 +117,10 @@ def test_rerun_is_byte_identical(tmp_path):
     config_path = build_env(tmp_path)
     run(config_path, Paths(root=tmp_path), encoding=FakeEncoding())
     first = read_r1(tmp_path)
-    first_questions = (tmp_path / "runs" / "tracer" / "questions.jsonl").read_bytes()
+    first_questions = (tmp_path / "runs" / "qasper" / "tracer" / "questions.jsonl").read_bytes()
     run(config_path, Paths(root=tmp_path), encoding=FakeEncoding())
     assert read_r1(tmp_path) == first
-    assert (tmp_path / "runs" / "tracer" / "questions.jsonl").read_bytes() == first_questions
+    assert (tmp_path / "runs" / "qasper" / "tracer" / "questions.jsonl").read_bytes() == first_questions
 
 
 def test_cli_run_command(tmp_path, capsys, monkeypatch, fake_encoding):

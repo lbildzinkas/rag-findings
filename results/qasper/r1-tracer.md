@@ -40,6 +40,15 @@ view: production
 | excluded: evidence_unanchored | 4 |
 | total | 2456 |
 
+## Query types
+
+| query type | n |
+|---|---|
+| precise | 1317 |
+| context | 404 |
+| mixed | 476 |
+| total | 2197 |
+
 ## Retrieval
 
 | metric | value |

@@ -1,0 +1,16 @@
+dataset:
+  name: pooled
+  sources:
+    - {name: qasper, splits: [dev, test]}
+    - {name: nq, splits: [dev]}
+chunking:
+  method: fixed
+  chunk_tokens: 256
+  overlap: 0
+pipeline: bm25
+budget: 1024
+view: production
+top_n: 8
+seed: 0
+search_depth: 100
+run_name: tracer

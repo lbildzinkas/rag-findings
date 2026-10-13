@@ -12,14 +12,17 @@ Per-question results go to runs/<run_name>/ (git-ignored) as Parquet, in
 a stable columnar schema that later pipelines extend with more rows
 (`pipeline`, `embedder`) without changing the columns:
 
-- questions.parquet: one row per question, with its query type;
+- questions.parquet: one row per question, with its query type and,
+  for Natural Questions, whether it has a short-answer span;
 - results.parquet: one row per question x chunking x scope x view x top-N
   cap x budget, with retrieval recall and precision (null when not
-  scored) and whether the top-N cap bound;
+  scored), whether the top-N cap bound, and the short-answer span recall
+  for NQ precise questions (null elsewhere);
 - fixed_k.parquet: one row per question x chunking x scope x k, with
   hit@k and recall@k (collection search only).
 
-The result tables R2, R3, R4 and R2w are rendered from those files.
+The result tables R2, R3, R4, R2w and - for a Natural Questions run -
+R6 are rendered from those files.
 """
 
 from __future__ import annotations
@@ -36,17 +39,18 @@ import pyarrow.parquet as pq
 from .chunking import Chunk, chunk_text, fixed_windows, section_aware, small_to_big_children, verify_tiling
 from .config import ChunkingSpec, GridConfig, config_hash
 from .documents import Document
+from .labels import question_query_type
 from .metrics import score_fixed_k, score_question
 from .packing import pack, pack_small_to_big
 from .paths import Paths
 from .qasper import Question
-from .query_type import QUERY_TYPES, query_type
+from .query_type import QUERY_TYPES
 from .retrieval import BM25Index
-from .run import excluded_counts, gold_token_sets, library_versions, load_qasper
+from .run import dataset_split_hashes, excluded_counts, gold_token_sets, library_versions, load_datasets
 from .tables import write_tables
 from .tokens import TokenText
 
-SCHEMA_VERSION = "1"
+SCHEMA_VERSION = "2"
 
 QUESTIONS_SCHEMA = pa.schema(
     [
@@ -57,6 +61,7 @@ QUESTIONS_SCHEMA = pa.schema(
         ("query_type", pa.string()),
         ("annotators", pa.int32()),
         ("passages", pa.list_(pa.int32())),
+        ("short_answer", pa.bool_()),  # NQ questions with a short-answer span
     ]
 )
 
@@ -86,6 +91,7 @@ RESULTS_SCHEMA = pa.schema(
         ("n_chunks", pa.int32()),
         ("kept_annotator", pa.int32()),
         ("cap_bound", pa.bool_()),  # null in the fair view
+        ("short_recall", pa.float64()),  # NQ short-answer span recall, null elsewhere
     ]
 )
 
@@ -195,14 +201,16 @@ def _views(cfg: GridConfig) -> list[tuple[str, int | None]]:
 def _score_question(
     cfg: GridConfig,
     question: Question,
+    dataset: str,
     qtype: str,
     gold: list[tuple[int, ...]],
+    short_gold: list[tuple[int, ...]],
     chunkings: list[_Chunking],
     results: _Columns,
     fixed_k: _Columns,
 ) -> None:
     keys = {
-        "dataset": cfg.dataset,
+        "dataset": dataset,
         "split": question.split,
         "question_id": question.question_id,
         "doc_id": question.doc_id,
@@ -234,6 +242,7 @@ def _score_question(
                 for view, top_n in _views(cfg):
                     packed = fair if top_n is None else chunking.packer(ranked, budget, top_n)
                     score = score_question(gold, packed, question.doc_id)
+                    short_recall = score_question(short_gold, packed, question.doc_id).recall if short_gold else None
                     results.add(
                         **cell,
                         view=view,
@@ -242,6 +251,7 @@ def _score_question(
                         scored=True,
                         recall=score.recall,
                         precision=score.precision,
+                        short_recall=short_recall,
                         retrieved_tokens=score.retrieved_tokens,
                         gold_tokens=score.gold_tokens,
                         n_chunks=len(packed),
@@ -263,10 +273,10 @@ class GridOutcome:
 def run_grid(cfg: GridConfig, paths: Paths, encoding=None) -> GridOutcome:
     started = time.monotonic()
     cfg_hash = config_hash(cfg)
-    splits, documents, spans_verified = load_qasper(paths, cfg.splits)
+    splits, documents, spans_verified = load_datasets(paths, cfg.sources)
     tokenized = {doc_id: TokenText(documents[doc_id].text, encoding) for doc_id in sorted(documents)}
 
-    run_dir = paths.run_dir(cfg.run_name)
+    run_dir = paths.run_dir(cfg.run_name, cfg.dataset)
     run_dir.mkdir(parents=True, exist_ok=True)
     chunkings: list[_Chunking] = []
     chunk_counts: dict[str, int] = {}
@@ -284,42 +294,68 @@ def run_grid(cfg: GridConfig, paths: Paths, encoding=None) -> GridOutcome:
     for split in splits:
         for question in split.questions:
             passages = [len(annotator) for annotator in question.annotators]
-            qtype = query_type(passages)
+            qtype = question_query_type(question)
             query_types[qtype] += 1
             questions.add(
-                dataset=cfg.dataset,
+                dataset=split.dataset,
                 split=question.split,
                 question_id=question.question_id,
                 doc_id=question.doc_id,
                 query_type=qtype,
                 annotators=len(passages),
                 passages=passages,
+                short_answer=bool(question.short_annotators) or None,
             )
             gold = gold_token_sets(question, tokenized)
-            _score_question(cfg, question, qtype, gold, chunkings, results, fixed_k)
+            short_gold = [
+                tuple(
+                    sorted(
+                        frozenset().union(
+                            *(tokenized[question.doc_id].token_indices_overlapping(s.start, s.end) for s in annotator)
+                        )
+                    )
+                )
+                for annotator in question.short_annotators
+            ]
+            _score_question(cfg, question, split.dataset, qtype, gold, short_gold, chunkings, results, fixed_k)
 
     questions.write(run_dir / "questions.parquet")
     results.write(run_dir / "results.parquet")
     fixed_k.write(run_dir / "fixed_k.parquet")
 
-    tables = write_tables(cfg, cfg_hash, {s.split: s.dataset_hash for s in splits}, run_dir, paths.results)
+    dataset_hashes = dataset_split_hashes(splits)
+    tables = write_tables(cfg, cfg_hash, dataset_hashes, run_dir, paths.results)
     n_questions = sum(query_types.values())
+    nq_split = next((split for split in splits if split.dataset == "nq"), None)
     manifest = {
         "config": cfg.as_dict(),
         "config_hash": cfg_hash,
         "schema_version": SCHEMA_VERSION,
-        "datasets": {split.split: split.dataset_hash for split in splits},
+        "datasets": dataset_hashes,
         "versions": library_versions(),
         "counts": {
             "documents": len(documents),
             "chunks": chunk_counts,
             "questions": n_questions,
             "query_types": query_types,
+            "query_types_by_dataset": {
+                split.dataset: {t: sum(1 for q in split.questions if question_query_type(q) == t) for t in QUERY_TYPES}
+                for split in splits
+            },
             "excluded_by_reason": excluded_counts(splits),
             "labelled_spans_verified": spans_verified,
             "documents_tiled_per_chunking": len(documents),
             "multibyte_characters_shared_at_chunk_boundaries": shared_characters,
-            "evidence_anchoring": {split.split: split.evidence_counts for split in splits},
+            "evidence_anchoring": {
+                key: split.evidence_counts for key, split in zip(dataset_hashes, splits, strict=True)
+            },
+            "nq_subset": {
+                "file": "configs/nq-subset.txt",
+                "ids": nq_split.subset_size,
+                "sha256": nq_split.subset_hash,
+            }
+            if nq_split is not None
+            else None,
         },
         "duration_seconds": round(time.monotonic() - started, 3),
     }
