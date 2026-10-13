@@ -1,7 +1,11 @@
 """Query type from the labels, decided in hindsight.
 
-A question is precise when every usable annotation cites one passage,
-context when every usable annotation cites several, and mixed otherwise.
+The passage-count rule, used when a dataset's labels do not decide the
+type directly (QASPER): a question is precise when every usable
+annotation cites one passage, context when every usable annotation
+cites several, and mixed otherwise. Natural Questions labels decide the
+type instead (short answer means precise, long-answer-only means
+context); `labels.question_query_type` dispatches between the two rules.
 A usable annotation is one with at least one labelled span; a passage is
 one distinct labelled span. Mixed questions count in every mean but not in
 the query-type contrasts. The routing decision never sees the query type:

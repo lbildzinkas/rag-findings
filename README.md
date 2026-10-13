@@ -14,7 +14,7 @@ A thin end-to-end retrieval eval: QASPER v0.3 to canonical documents to labelled
 uv run rag setup && uv run rag run configs/tracer.yaml
 ```
 
-Then open `results/qasper/r1-tracer.md`. `setup` downloads the QASPER dev and test tarballs (about 15 MB) into the git-ignored `data/` directory and verifies their sha256 checksums; `run` writes per-question results and a run manifest to the git-ignored `runs/` directory and regenerates the committed result table under `results/`. Unit tests run offline on small committed fixtures: `uv run pytest`.
+Then open `results/qasper/r1-tracer.md`. `setup` downloads the QASPER dev and test tarballs (about 15 MB) and the Natural Questions dev config (seven parquet shards, about 1.34 GB; never the default config, whose train split is 57 GB) into the git-ignored `data/` directory and verifies their sha256 checksums; `run` writes per-question results and a run manifest to the git-ignored `runs/` directory (namespaced per dataset label) and regenerates the committed result table under `results/`. Unit tests run offline on small committed fixtures: `uv run pytest`.
 
 ## BM25 grid (v1)
 
@@ -24,7 +24,7 @@ Every chunking at every token budget, under BM25 on QASPER: fixed windows of 64,
 uv run rag setup && uv run rag run configs/grid.yaml
 ```
 
-The run takes a few minutes. It writes per-question results as Parquet under `runs/grid/` (git-ignored; one row per question, chunking, search scope, view, cap and budget, plus fixed-k rows and each question's query type) and regenerates the committed tables:
+The run takes a few minutes. It writes per-question results as Parquet under `runs/<dataset>/<run_name>/` (git-ignored; one row per question, chunking, search scope, view, cap and budget, plus fixed-k rows and each question's query type) and regenerates the committed tables:
 
 - `results/qasper/r2-grid.md` (R2): retrieval recall and precision per chunking and budget, production and fair view side by side, plus the cap-5 side table;
 - `results/qasper/r3-grid.md` (R3): retrieval recall per query type (precise, context; mixed counted but left out of the contrast) and the difference between types;
@@ -32,6 +32,26 @@ The run takes a few minutes. It writes per-question results as Parquet under `ru
 - `results/qasper/r2w-grid.md` (R2w): R2 with search within the question's own document.
 
 "n/a" marks a fixed chunking whose chunk is bigger than the budget; "†" marks production-view cells where the top-N cap, not the budget, limits the retrieved text for at least half of the questions.
+
+## Natural Questions subset (v1)
+
+A second dataset, so the chunk size × query type interaction and the routing headroom are not QASPER-only. `sample` picks 1,000 questions from the NQ dev config - 500 with a short answer (precise) and 500 long-answer-only (context) - from the questions where at least 2 of 5 annotators gave a long answer and at least one of those long answers is a paragraph (`<P>`); tables and lists are excluded. The selection ranks question ids by seeded sha256, and the resulting id list is committed as `configs/nq-subset.txt` (ids only, never dataset text, so the CC BY-SA 3.0 ShareAlike term never attaches to the repository) and reproduces the same subset.
+
+```sh
+uv run rag sample && uv run rag run configs/nq-tracer.yaml && uv run rag run configs/nq-grid.yaml
+```
+
+The canonical page text is the page's non-HTML tokens (tokens joined with spaces inside a paragraph, paragraphs joined with blank lines), with a map from token offsets to character offsets; the labelled span of every annotator whose long answer is a `<P>` paragraph is that paragraph, and short-answer spans are kept per annotator. Sections come from the page's heading tags, so section-aware chunks and small-to-big parents follow the page's own structure. The collection is the subset's 1,000 pages; whole-collection search runs over all of them and within-document search over the question's own page.
+
+The NQ tracer and grid write the same R1-R4 and R2w tables under `results/nq/`, plus `results/nq/r6-grid.md` (R6): short-answer span recall by chunking and budget on the NQ precise questions that have a short-answer span, the same packing as R2 scored against the short-answer spans instead of the long-answer paragraph.
+
+## Pooled runs (v1)
+
+`configs/pooled-tracer.yaml` and `configs/pooled-grid.yaml` load QASPER (dev and test) and the NQ subset together: one collection, one retrieval run over both, and the same tables under `results/pooled/`, with each dataset's n kept visible (the Questions section of every pooled table breaks the query-type counts down per dataset).
+
+```sh
+uv run rag run configs/pooled-tracer.yaml && uv run rag run configs/pooled-grid.yaml
+```
 
 ## Routing headroom (v1)
 

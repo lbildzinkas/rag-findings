@@ -1,6 +1,6 @@
 kind: headroom
-# grid runs under runs/ whose per-question results are pooled
-runs: [grid]
+# grid runs under runs/<dataset>/ whose per-question results are pooled
+runs: [qasper/grid]
 scope: collection
 # the production view's top-N cap (the cap-5 side table is not analysed)
 top_n: 8

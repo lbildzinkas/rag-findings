@@ -4,6 +4,7 @@ query types, the per-question Parquet results and byte-identical tables."""
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 import pyarrow.parquet as pq
@@ -12,6 +13,7 @@ import pytest
 from rag.config import parse_grid_config
 from rag.grid import FIXED_K_SCHEMA, QUESTIONS_SCHEMA, RESULTS_SCHEMA, run_grid
 from rag.paths import Paths
+from rag.query_type import QUERY_TYPES
 from rag.retrieval import BM25Index
 from tests.conftest import FakeEncoding, make_answer, make_paper, make_qa, write_split
 
@@ -87,11 +89,15 @@ def grid_run(tmp_path):
     return cfg, outcome, tmp_path
 
 
+def run_dir_of(root: Path) -> Path:
+    return root / "runs" / "qasper" / "grid"
+
+
 def test_query_types_are_stored_per_question_and_counted_in_r3(grid_run):
     _, outcome, root = grid_run
     assert outcome.n_questions == 4
     assert outcome.query_types == {"precise": 2, "context": 1, "mixed": 1}
-    questions = pq.read_table(root / "runs" / "grid" / "questions.parquet").to_pydict()
+    questions = pq.read_table(run_dir_of(root) / "questions.parquet").to_pydict()
     assert dict(zip(questions["question_id"], questions["query_type"], strict=True)) == {
         "qa1": "precise",
         "qa2": "context",
@@ -107,15 +113,23 @@ def test_query_types_are_stored_per_question_and_counted_in_r3(grid_run):
     ]
 
 
+def test_manifest_accumulates_query_types_per_dataset_across_splits(grid_run):
+    _, outcome, root = grid_run
+    manifest = json.loads((run_dir_of(root) / "manifest.json").read_text())
+    assert manifest["counts"]["query_types_by_dataset"] == {"qasper": {"precise": 2, "context": 1, "mixed": 1}}
+    summed = {t: sum(c[t] for c in manifest["counts"]["query_types_by_dataset"].values()) for t in QUERY_TYPES}
+    assert summed == manifest["counts"]["query_types"] == outcome.query_types
+
+
 def test_results_are_columnar_and_cover_the_grid(grid_run):
     cfg, _, root = grid_run
-    run_dir = root / "runs" / "grid"
+    run_dir = run_dir_of(root)
     results = pq.read_table(run_dir / "results.parquet")
     fixed_k = pq.read_table(run_dir / "fixed_k.parquet")
     assert results.schema.remove_metadata() == RESULTS_SCHEMA
     assert fixed_k.schema.remove_metadata() == FIXED_K_SCHEMA
     assert pq.read_table(run_dir / "questions.parquet").schema.remove_metadata() == QUESTIONS_SCHEMA
-    assert results.schema.metadata[b"rag.schema_version"] == b"1"
+    assert results.schema.metadata[b"rag.schema_version"] == b"2"
     assert results.num_rows == 4 * len(cfg.chunkings) * 2 * len(cfg.budgets) * 3
     assert fixed_k.num_rows == 4 * len(cfg.chunkings) * len(cfg.fixed_k)
 

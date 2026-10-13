@@ -1,9 +1,10 @@
-"""Document store: one canonical text per paper.
+"""Document store: one canonical text per document (QASPER paper or NQ page).
 
-The canonical text is the abstract followed by every section paragraph,
-joined with blank lines. Each document records its paragraphs' character
-spans so evidence can be anchored, and a source hash (sha256 of the
-canonical text) so spans can be checked against their document.
+`build_document` makes a paper's canonical text: the abstract followed
+by every section paragraph, joined with blank lines. Each document
+records its paragraphs' character spans so evidence can be anchored, and
+a source hash (sha256 of the canonical text) so spans can be checked
+against their document.
 """
 
 from __future__ import annotations

@@ -27,6 +27,17 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from .documents import Document, build_document
+from .labels import LabelledSpan, Question, verify_spans
+
+__all__ = [
+    "ExcludedQuestion",
+    "LabelledSpan",
+    "QasperSplit",
+    "Question",
+    "anchor_evidence",
+    "load_split",
+    "verify_spans",
+]
 
 FUZZY_THRESHOLD = 0.8
 FLOAT_PREFIX = "FLOAT SELECTED: "
@@ -35,26 +46,6 @@ SECTION_MARK = " ::: "
 UNANSWERABLE = "unanswerable"
 FIGURE_OR_TABLE_ONLY = "figure_or_table_only"
 EVIDENCE_UNANCHORED = "evidence_unanchored"
-
-
-@dataclass(frozen=True)
-class LabelledSpan:
-    """The exact source text that answers a question."""
-
-    doc_id: str
-    start: int
-    end: int
-    quote: str
-    source_hash: str
-
-
-@dataclass(frozen=True)
-class Question:
-    question_id: str
-    doc_id: str
-    split: str
-    text: str
-    annotators: tuple[tuple[LabelledSpan, ...], ...]
 
 
 @dataclass(frozen=True)
@@ -73,6 +64,7 @@ class QasperSplit:
     excluded: tuple[ExcludedQuestion, ...]
     dataset_hash: str
     evidence_counts: dict[str, int]
+    dataset: str = "qasper"
 
 
 @dataclass
@@ -213,20 +205,5 @@ def load_split(split: str, path: Path) -> QasperSplit:
         excluded=tuple(excluded),
         dataset_hash=dataset_hash,
         evidence_counts=evidence_counts,
+        dataset="qasper",
     )
-
-
-def verify_spans(split: QasperSplit, documents_by_id: dict[str, Document]) -> int:
-    """Check every labelled span round-trips; return the number checked."""
-    checked = 0
-    for question in split.questions:
-        doc = documents_by_id[question.doc_id]
-        doc_hash = doc.source_hash
-        for annotator in question.annotators:
-            for span in annotator:
-                if doc.text[span.start : span.end] != span.quote:
-                    raise ValueError(f"span does not round-trip: {question.question_id}")
-                if span.source_hash != doc_hash:
-                    raise ValueError(f"span source hash mismatch: {question.question_id}")
-                checked += 1
-    return checked
