@@ -9,6 +9,7 @@ from pathlib import Path
 import yaml
 
 from rag.paths import Paths
+from rag.query_type import QUERY_TYPES
 from rag.run import run
 from tests.conftest import FakeEncoding, make_answer, make_paper, make_qa, write_split
 
@@ -109,6 +110,10 @@ def test_end_to_end_run(tmp_path):
     assert set(manifest["datasets"]) == {"dev", "test"}
     assert manifest["versions"]["lancedb"]
     assert manifest["counts"]["questions"] == outcome.n_questions
+    assert manifest["counts"]["query_types_by_dataset"] == {
+        "qasper": {t: 3 if t == "precise" else 0 for t in QUERY_TYPES}
+    }
+    assert manifest["counts"]["query_types"] == manifest["counts"]["query_types_by_dataset"]["qasper"]
 
     assert outcome.mean_recall > 0.0
 

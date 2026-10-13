@@ -326,11 +326,7 @@ def run(config_path: Path, paths: Paths, encoding=None) -> RunOutcome:
             "excluded_by_reason": excluded_by_reason,
             "labelled_spans_verified": spans_verified,
             "query_types": outcome.query_types,
-            "query_types_by_dataset": outcome.query_types_by_dataset
-            or {
-                split.dataset: {t: sum(1 for q in split.questions if question_query_type(q) == t) for t in QUERY_TYPES}
-                for split in splits
-            },
+            "query_types_by_dataset": query_types_by_dataset,
             "evidence_anchoring": {
                 key: split.evidence_counts for key, split in zip(dataset_split_hashes(splits), splits, strict=True)
             },

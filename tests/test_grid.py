@@ -4,6 +4,7 @@ query types, the per-question Parquet results and byte-identical tables."""
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 import pyarrow.parquet as pq
@@ -12,6 +13,7 @@ import pytest
 from rag.config import parse_grid_config
 from rag.grid import FIXED_K_SCHEMA, QUESTIONS_SCHEMA, RESULTS_SCHEMA, run_grid
 from rag.paths import Paths
+from rag.query_type import QUERY_TYPES
 from rag.retrieval import BM25Index
 from tests.conftest import FakeEncoding, make_answer, make_paper, make_qa, write_split
 
@@ -109,6 +111,16 @@ def test_query_types_are_stored_per_question_and_counted_in_r3(grid_run):
         ["mixed", "1"],
         ["total", "4"],
     ]
+
+
+def test_manifest_accumulates_query_types_per_dataset_across_splits(grid_run):
+    _, outcome, root = grid_run
+    manifest = json.loads((run_dir_of(root) / "manifest.json").read_text())
+    assert manifest["counts"]["query_types_by_dataset"] == {
+        "qasper": {"precise": 2, "context": 1, "mixed": 1}
+    }
+    summed = {t: sum(c[t] for c in manifest["counts"]["query_types_by_dataset"].values()) for t in QUERY_TYPES}
+    assert summed == manifest["counts"]["query_types"] == outcome.query_types
 
 
 def test_results_are_columnar_and_cover_the_grid(grid_run):

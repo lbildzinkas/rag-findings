@@ -292,11 +292,14 @@ def run_grid(cfg: GridConfig, paths: Paths, encoding=None) -> GridOutcome:
     results = _Columns(RESULTS_SCHEMA)
     fixed_k = _Columns(FIXED_K_SCHEMA)
     query_types = {t: 0 for t in QUERY_TYPES}
+    query_types_by_dataset: dict[str, dict[str, int]] = {}
     for split in splits:
         for question in split.questions:
             passages = [len(annotator) for annotator in question.annotators]
             qtype = question_query_type(question)
             query_types[qtype] += 1
+            per_dataset = query_types_by_dataset.setdefault(split.dataset, {t: 0 for t in QUERY_TYPES})
+            per_dataset[qtype] += 1
             short_scored = qtype == PRECISE and bool(question.short_annotators)
             questions.add(
                 dataset=split.dataset,
@@ -347,10 +350,7 @@ def run_grid(cfg: GridConfig, paths: Paths, encoding=None) -> GridOutcome:
             "chunks": chunk_counts,
             "questions": n_questions,
             "query_types": query_types,
-            "query_types_by_dataset": {
-                split.dataset: {t: sum(1 for q in split.questions if question_query_type(q) == t) for t in QUERY_TYPES}
-                for split in splits
-            },
+            "query_types_by_dataset": query_types_by_dataset,
             "excluded_by_reason": excluded_counts(splits),
             "labelled_spans_verified": spans_verified,
             "documents_tiled_per_chunking": len(documents),
