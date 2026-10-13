@@ -6,7 +6,7 @@ from __future__ import annotations
 import pytest
 
 from rag.chunking import Chunk
-from rag.metrics import mean, overlap_tokens, score_question
+from rag.metrics import mean, overlap_tokens, score_fixed_k, score_question
 
 
 def chunk(doc_id: str, token_start: int, n_tokens: int, index: int = 0) -> Chunk:
@@ -95,6 +95,12 @@ def test_overlap_tokens_helper():
     assert overlap_tokens(gold, [(0, 10)]) == 3
     assert overlap_tokens(gold, [(2, 6)]) == 1
     assert overlap_tokens(gold, []) == 0
+    assert overlap_tokens((1, 5, 9), [(0, 2), (4, 10)]) == 3  # sorted tuple input
+
+
+def test_overlap_tokens_counts_overlapping_ranges_once():
+    gold = frozenset(range(10))
+    assert overlap_tokens(gold, [(0, 6), (4, 10), (2, 3)]) == 10
 
 
 def test_question_requires_gold():
@@ -105,3 +111,31 @@ def test_question_requires_gold():
 def test_mean():
     assert mean([1.0, 0.5, 0.5]) == pytest.approx(2 / 3)
     assert mean([]) == 0.0
+
+
+def units(doc_id: str, n: int, size: int = 10) -> list[Chunk]:
+    return [chunk(doc_id, i * size, size, index=i) for i in range(n)]
+
+
+def test_fixed_k_hit_and_recall():
+    doc_units = units("d1", 5)  # tokens 0-50 in 10-token units
+    gold = frozenset(range(10, 30))  # units 1 and 2 relevant
+    ranked = [doc_units[4], doc_units[1], doc_units[0], doc_units[2]]
+    k1, k2, k4 = score_fixed_k([gold], ranked, doc_units, "d1", [1, 2, 4])
+    assert (k1.hit, k1.recall) == (False, 0.0)
+    assert (k2.hit, k2.recall) == (True, pytest.approx(0.5))
+    assert (k4.hit, k4.recall) == (True, pytest.approx(1.0))
+    assert k4.relevant_units == 2
+
+
+def test_fixed_k_ignores_other_documents_and_keeps_best_annotator():
+    doc_units = units("d1", 3)
+    other = units("d2", 3)
+    gold_a = frozenset(range(5))  # unit 0
+    gold_b = frozenset(range(20, 25))  # unit 2
+    ranked = [other[0], doc_units[2], doc_units[0]]
+    (k2,) = score_fixed_k([gold_a, gold_b], ranked, doc_units, "d1", [2])
+    assert k2.hit
+    assert k2.recall == pytest.approx(1.0)  # annotator b's only relevant unit is in the top 2
+    with pytest.raises(ValueError):
+        score_fixed_k([], ranked, doc_units, "d1", [1])

@@ -24,7 +24,7 @@ def main(argv: list[str] | None = None) -> int:
         help="project root holding data/ (default: current directory)",
     )
 
-    run_parser = sub.add_parser("run", help="run one retrieval eval from a config file")
+    run_parser = sub.add_parser("run", help="run a retrieval eval (one cell, or a grid with `kind: grid`)")
     run_parser.add_argument("config", type=Path, help="path to the run config YAML")
     run_parser.add_argument(
         "--root",
@@ -46,6 +46,14 @@ def main(argv: list[str] | None = None) -> int:
         return 0
 
     if args.command == "run":
+        from .config import GridConfig, load_any_config
+
+        cfg = load_any_config(args.config)
+        if isinstance(cfg, GridConfig):
+            from .grid import run_grid
+
+            run_grid(cfg, paths)
+            return 0
         from .run import run
 
         run(args.config, paths)

@@ -50,7 +50,8 @@ class RunOutcome:
     result_table: Path
 
 
-def _library_versions() -> dict[str, str]:
+def library_versions() -> dict[str, str]:
+    import chonkie
     import lancedb
     import tiktoken
     import yaml
@@ -64,6 +65,7 @@ def _library_versions() -> dict[str, str]:
     return {
         "python": platform.python_version(),
         "rag-findings": __version__,
+        "chonkie": chonkie.__version__,
         "lancedb": lancedb.__version__,
         "tiktoken": tiktoken.__version__,
         "pyarrow": pyarrow_version,
@@ -97,12 +99,42 @@ def _build_chunks(
     return chunks, tokenized, texts
 
 
-def _gold_sets(question, tokenized: dict[str, TokenText]) -> list[frozenset[int]]:
+def gold_token_sets(question, tokenized: dict[str, TokenText]) -> list[tuple[int, ...]]:
+    """Each annotator's labelled-span token positions, sorted."""
     tokens = tokenized[question.doc_id]
     return [
-        frozenset().union(*(tokens.token_indices_overlapping(span.start, span.end) for span in annotator))
+        tuple(sorted(frozenset().union(*(tokens.token_indices_overlapping(s.start, s.end) for s in annotator))))
         for annotator in question.annotators
     ]
+
+
+def load_qasper(paths: Paths, split_names: tuple[str, ...]) -> tuple[list[QasperSplit], dict[str, Document], int]:
+    """Load the splits and their documents, check question ids are unique
+    and every labelled span round-trips; returns (splits, documents by id,
+    spans verified)."""
+    split_paths = ensure_split_files(paths.data, split_names)
+    splits = [load_split(name, split_paths[name]) for name in sorted(split_paths)]
+    documents = _all_documents(splits)
+
+    seen_ids: set[str] = set()
+    for split in splits:
+        for question in split.questions:
+            if question.question_id in seen_ids:
+                raise ValueError(f"duplicate question id: {question.question_id}")
+            seen_ids.add(question.question_id)
+
+    # every labelled span round-trips: offsets slice back to the quote and
+    # the source hash matches the document's
+    spans_verified = sum(verify_spans(split, documents_by_id=documents) for split in splits)
+    return splits, documents, spans_verified
+
+
+def excluded_counts(splits: list[QasperSplit]) -> dict[str, int]:
+    excluded_by_reason = {reason: 0 for reason in EXCLUSION_ORDER}
+    for split in splits:
+        for item in split.excluded:
+            excluded_by_reason[item.reason] = excluded_by_reason.get(item.reason, 0) + 1
+    return excluded_by_reason
 
 
 def write_result_table(
@@ -157,20 +189,7 @@ def run(config_path: Path, paths: Paths, encoding=None) -> RunOutcome:
     cfg = load_config(config_path)
     cfg_hash = config_hash(cfg)
 
-    split_paths = ensure_split_files(paths.data, cfg.splits)
-    splits = [load_split(name, split_paths[name]) for name in sorted(split_paths)]
-    documents = _all_documents(splits)
-
-    seen_ids: set[str] = set()
-    for split in splits:
-        for question in split.questions:
-            if question.question_id in seen_ids:
-                raise ValueError(f"duplicate question id: {question.question_id}")
-            seen_ids.add(question.question_id)
-
-    # every labelled span round-trips: offsets slice back to the quote and
-    # the source hash matches the document's
-    spans_verified = sum(verify_spans(split, documents_by_id=documents) for split in splits)
+    splits, documents, spans_verified = load_qasper(paths, cfg.splits)
 
     chunks, tokenized, texts = _build_chunks(documents, cfg.chunk_tokens, encoding)
 
@@ -187,7 +206,7 @@ def run(config_path: Path, paths: Paths, encoding=None) -> RunOutcome:
             ranked = index.search(question.text, cfg.search_depth)
             top_n = cfg.top_n if cfg.view == "production" else max(len(ranked), 1)
             packed = pack([item.chunk for item in ranked], cfg.budget, top_n)
-            score: QuestionScore = score_question(_gold_sets(question, tokenized), packed, question.doc_id)
+            score: QuestionScore = score_question(gold_token_sets(question, tokenized), packed, question.doc_id)
             recalls.append(score.recall)
             precisions.append(score.precision)
             records.append(
@@ -219,10 +238,7 @@ def run(config_path: Path, paths: Paths, encoding=None) -> RunOutcome:
         for record in records:
             fh.write(json.dumps(record, sort_keys=True) + "\n")
 
-    excluded_by_reason = {reason: 0 for reason in EXCLUSION_ORDER}
-    for split in splits:
-        for item in split.excluded:
-            excluded_by_reason[item.reason] = excluded_by_reason.get(item.reason, 0) + 1
+    excluded_by_reason = excluded_counts(splits)
 
     outcome = RunOutcome(
         config=cfg,
@@ -238,7 +254,7 @@ def run(config_path: Path, paths: Paths, encoding=None) -> RunOutcome:
         "config": cfg.as_dict(),
         "config_hash": cfg_hash,
         "datasets": {split.split: split.dataset_hash for split in splits},
-        "versions": _library_versions(),
+        "versions": library_versions(),
         "counts": {
             "documents": len(documents),
             "chunks": len(chunks),

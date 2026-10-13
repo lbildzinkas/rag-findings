@@ -1,8 +1,10 @@
-"""BM25 retrieval over the whole collection with a LanceDB full-text index.
+"""BM25 retrieval with a LanceDB full-text index.
 
-All papers' chunks go into one FTS table. Search results are re-sorted by
-(-score, doc_id, chunk index) so packing is deterministic regardless of
-the engine's tie order.
+All papers' chunks of one chunking go into one FTS table. A search runs
+over the whole collection, or, given a document id, only within that
+document (the index is prefiltered to it; BM25 statistics stay those of
+the collection). Search results are re-sorted by (-score, doc_id, chunk
+index) so packing is deterministic regardless of the engine's tie order.
 """
 
 from __future__ import annotations
@@ -51,16 +53,22 @@ class BM25Index:
                     "token_start": chunk.token_start,
                     "token_end": chunk.token_end,
                     "n_tokens": chunk.n_tokens,
+                    "parent_index": chunk.parent_index,
                     "text": texts[f"{chunk.doc_id}:{chunk.index}"],
                 }
             )
         table = self._db.create_table(self._table, data=rows, mode="overwrite")
         table.create_index("text", config=FTS())
 
-    def search(self, query: str, limit: int) -> list[RankedChunk]:
-        """Return up to `limit` chunks ranked by BM25, deterministically."""
+    def search(self, query: str, limit: int, doc_id: str | None = None) -> list[RankedChunk]:
+        """Return up to `limit` chunks ranked by BM25, deterministically;
+        only chunks of `doc_id` when it is given."""
         table = self._db.open_table(self._table)
-        rows = table.search(query, query_type="fts").limit(limit).to_list()
+        search = table.search(query, query_type="fts")
+        if doc_id is not None:
+            escaped = doc_id.replace("'", "''")
+            search = search.where(f"doc_id = '{escaped}'", prefilter=True)
+        rows = search.limit(limit).to_list()
         ranked = [
             RankedChunk(
                 chunk=Chunk(
@@ -71,6 +79,7 @@ class BM25Index:
                     token_start=row["token_start"],
                     token_end=row["token_end"],
                     n_tokens=row["n_tokens"],
+                    parent_index=row.get("parent_index", -1),
                 ),
                 score=float(row["_score"]),
             )

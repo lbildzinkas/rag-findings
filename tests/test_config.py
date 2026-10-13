@@ -5,7 +5,16 @@ from __future__ import annotations
 import pytest
 import yaml
 
-from rag.config import config_hash, config_yaml, load_config, parse_config
+from rag.config import (
+    GridConfig,
+    RunConfig,
+    config_hash,
+    config_yaml,
+    load_any_config,
+    load_config,
+    parse_config,
+    parse_grid_config,
+)
 
 BASE = {
     "dataset": {"name": "qasper", "splits": ["dev", "test"]},
@@ -82,3 +91,75 @@ def test_invalid_configs_rejected(mutate):
 def test_missing_keys_rejected():
     with pytest.raises(ValueError):
         parse_config({"dataset": {"name": "qasper"}})
+
+
+GRID = {
+    "kind": "grid",
+    "dataset": {"name": "qasper", "splits": ["dev", "test"]},
+    "pipeline": "bm25",
+    "chunkings": [
+        {"name": "fixed-64", "method": "fixed", "chunk_tokens": 64},
+        {"name": "section-aware", "method": "section_aware", "max_tokens": 512},
+        {"name": "small-to-big", "method": "small_to_big", "max_tokens": 512, "child_tokens": 128},
+    ],
+    "budgets": [128, 256, 512],
+    "top_n": 8,
+    "side_top_n": 5,
+    "scopes": ["collection", "document"],
+    "fixed_k": [1, 5, 10],
+    "seed": 0,
+    "run_name": "grid",
+}
+
+
+def grid(**changes):
+    raw = yaml.safe_load(yaml.safe_dump(GRID))
+    raw.update(changes)
+    return raw
+
+
+def test_parse_grid_config():
+    cfg = parse_grid_config(grid())
+    assert [c.name for c in cfg.chunkings] == ["fixed-64", "section-aware", "small-to-big"]
+    assert [c.fixed_size for c in cfg.chunkings] == [64, None, None]
+    assert cfg.chunkings[2].child_tokens == 128
+    assert cfg.budgets == (128, 256, 512)
+    assert cfg.search_depth == 1000  # default
+    assert parse_grid_config(cfg.as_dict()) == cfg
+    assert config_hash(parse_grid_config(grid())) == config_hash(cfg)
+    assert "small_to_big" in config_yaml(cfg)
+
+
+def test_load_any_config_dispatches_on_kind(tmp_path):
+    grid_path = tmp_path / "grid.yaml"
+    grid_path.write_text(yaml.safe_dump(GRID), encoding="utf-8")
+    single_path = tmp_path / "tracer.yaml"
+    single_path.write_text(yaml.safe_dump(BASE), encoding="utf-8")
+    assert isinstance(load_any_config(grid_path), GridConfig)
+    assert isinstance(load_any_config(single_path), RunConfig)
+
+
+@pytest.mark.parametrize(
+    "changes",
+    [
+        {"pipeline": "vector"},
+        {"chunkings": []},
+        {"chunkings": [{"name": "a", "method": "fixed", "chunk_tokens": 64}] * 2},
+        {"chunkings": [{"name": "a", "method": "semantic", "chunk_tokens": 64}]},
+        {"chunkings": [{"name": "a", "method": "fixed", "chunk_tokens": 0}]},
+        {"chunkings": [{"name": "a", "method": "fixed", "chunk_tokens": 64, "overlap": 8}]},
+        {"chunkings": [{"name": "a", "method": "small_to_big", "max_tokens": 512}]},
+        {"budgets": [256, 128]},
+        {"budgets": []},
+        {"fixed_k": [0, 5]},
+        {"top_n": 0},
+        {"side_top_n": -1},
+        {"scopes": ["document"]},
+        {"scopes": ["collection", "galaxy"]},
+        {"search_depth": 0},
+        {"dataset": {"name": "nq", "splits": ["dev"]}},
+    ],
+)
+def test_invalid_grid_configs_rejected(changes):
+    with pytest.raises(ValueError):
+        parse_grid_config(grid(**changes))
