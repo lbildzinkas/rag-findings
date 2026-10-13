@@ -680,6 +680,7 @@ source = { editable = "." }
 dependencies = [
     { name = "chonkie" },
     { name = "lancedb" },
+    { name = "numpy" },
     { name = "pyyaml" },
     { name = "tiktoken" },
 ]
@@ -694,6 +695,7 @@ dev = [
 requires-dist = [
     { name = "chonkie", specifier = ">=1.7" },
     { name = "lancedb", specifier = ">=0.40" },
+    { name = "numpy", specifier = ">=2.0" },
     { name = "pyyaml", specifier = ">=6.0" },
     { name = "tiktoken", specifier = ">=0.13" },
 ]

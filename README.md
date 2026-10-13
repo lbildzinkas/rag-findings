@@ -33,6 +33,22 @@ The run takes a few minutes. It writes per-question results as Parquet under `ru
 
 "n/a" marks a fixed chunking whose chunk is bigger than the budget; "†" marks production-view cells where the top-N cap, not the budget, limits the retrieved text for at least half of the questions.
 
+## Routing headroom (v1)
+
+The analysis that decides whether v2 builds a query router, read from the grid runs' per-question results (no retrieval runs). Per dataset (and pooled when there are several), pipeline, embedder, budget and view: the best single chunking (highest mean retrieval recall), the oracle router (per question, the chunking with the highest recall; ties to the smaller chunk) and the routing headroom between them. A paired bootstrap over documents (10,000 resamples, fixed seed) re-selects the best single chunking inside every resample and gives 95% CIs at the pre-registered 1024-token budget, Holm-adjusted at the other budgets.
+
+```sh
+uv run rag run configs/grid.yaml && uv run rag headroom configs/headroom.yaml
+```
+
+It takes seconds and regenerates the committed tables under `results/routing/`, byte-identically for the same seed and inputs:
+
+- `r7-headroom.md` (R7): the router gate verdict per embedder (production line, production view, 1024 tokens, pooled QASPER + NQ: build the router if either embedder's headroom is at least +0.05 recall with a CI excluding 0), the routing headroom, a query-type oracle row (the best chunking per labelled query type; secondary, not part of the gate) and every chunking's difference from the best single chunking;
+- `r8-headroom.md` (R8): the chunk size x query type interaction [Δ(chunking − fixed-128) | context] − [Δ(chunking − fixed-128) | precise];
+- `r9-headroom.md` (R9): which chunking the oracle router picks, by query type, at 1024 tokens.
+
+The committed tables come from the BM25 grid alone, so R7 reports the gate as not judged until the production line and the Natural Questions subset are in the results.
+
 ## Reports
 
 - [Chunk size versus query type, and how to test it fairly](chunking/2026-10-10-chunk-size-vs-query-type.md) (2026-10-10): what the literature shows about larger chunks for context-heavy queries and smaller chunks for precise ones, strategies that combine precision and context, chunking-agnostic evaluation (span gold, token recall at a fixed budget), a budget-matched QASPER pilot, a proposed local experiment, and open design questions.
