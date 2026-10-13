@@ -3,7 +3,7 @@
 - bm25: keyword search only, the chunking's full-text index;
 - vector: vector search only, one ranking per embedder;
 - hybrid: the BM25 and vector rankings fused by reciprocal rank fusion;
-- production: hybrid, then the reranker reorders the fused top
+- hybrid-rerank (the production line): hybrid, then the reranker reorders the fused top
   `rerank_depth` (30). The list continues in fused order after them: the
   unreranked tail, there so the fair view can fill the largest budgets.
 
@@ -25,7 +25,7 @@ import numpy as np
 
 from .cache import Cache, SpanKey
 from .chunking import Chunk, chunk_text
-from .config import PIPELINES, GridConfig
+from .config import PIPELINES, PRODUCTION_LINE, GridConfig
 from .documents import Document
 from .models import Embedder, EmbedderSpec, ModelSource, RerankerSpec
 from .qasper import Question
@@ -78,7 +78,7 @@ class Retriever:
 
     def __post_init__(self) -> None:
         self._embedders = {name: self.models.embedder(name) for name in self.cfg.embedders}
-        self._reranker = self.models.reranker() if "production" in self.cfg.pipelines else None
+        self._reranker = self.models.reranker() if PRODUCTION_LINE in self.cfg.pipelines else None
         self._doc_hashes = {doc_id: doc.source_hash for doc_id, doc in self.documents.items()}
         self._vectors: dict[tuple[str, str], VectorIndex] = {}
         self._queries: dict[str, dict[str, np.ndarray]] = {}
@@ -162,7 +162,7 @@ class Retriever:
             scores = self._rerank_scores(question.text, [fused[: cfg.rerank_depth] for _, _, fused in to_rerank])
             for key, embedder, fused in to_rerank:
                 ranked = rerank_head(fused, cfg.rerank_depth, lambda head: [scores[self.span(c)] for c in head])
-                out[key].append(Ranking("production", embedder, ranked, reranked=min(cfg.rerank_depth, len(fused))))
+                out[key].append(Ranking(PRODUCTION_LINE, embedder, ranked, reranked=min(cfg.rerank_depth, len(fused))))
         order = {p: i for i, p in enumerate(PIPELINES)}
         embedder_order = {e: i for i, e in enumerate(cfg.embedders)}
         for key, rankings in out.items():

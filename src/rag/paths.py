@@ -31,8 +31,10 @@ class Paths:
     def results(self) -> Path:
         return self.root / "results"
 
-    def run_dir(self, run_name: str) -> Path:
-        return self.runs / run_name
+    def run_dir(self, run_name: str, dataset: str | None = None) -> Path:
+        """Runs are namespaced per dataset label (qasper, nq, pooled), so
+        runs of different datasets never share lance tables."""
+        return self.runs / dataset / run_name if dataset else self.runs / run_name
 
 
 def default_paths(cwd: Path | None = None) -> Paths:

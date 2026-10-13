@@ -6,6 +6,7 @@ import pytest
 import yaml
 
 from rag.config import (
+    DatasetRef,
     GridConfig,
     RunConfig,
     config_hash,
@@ -31,13 +32,51 @@ BASE = {
 def test_parse_valid_config():
     cfg = parse_config(dict(BASE))
     assert cfg.dataset == "qasper"
-    assert cfg.splits == ("dev", "test")
+    assert cfg.sources == (DatasetRef("qasper", ("dev", "test")),)
     assert cfg.chunk_tokens == 256
     assert cfg.budget == 1024
     assert cfg.view == "production"
     assert cfg.top_n == 8
     assert cfg.seed == 0
     assert cfg.search_depth == 100  # default
+
+
+def test_parse_nq_and_pooled_sources():
+    nq = parse_config({**BASE, "dataset": {"name": "nq", "splits": ["dev"]}})
+    assert nq.dataset == "nq"
+    assert nq.sources == (DatasetRef("nq", ("dev",)),)
+    assert nq.as_dict()["dataset"] == {"name": "nq", "splits": ["dev"]}
+
+    pooled_raw = {
+        "dataset": {
+            "name": "pooled",
+            "sources": [{"name": "qasper", "splits": ["dev"]}, {"name": "nq", "splits": ["dev"]}],
+        }
+    }
+    pooled = parse_config({**BASE, **pooled_raw})
+    assert pooled.dataset == "pooled"
+    assert pooled.sources == (DatasetRef("qasper", ("dev",)), DatasetRef("nq", ("dev",)))
+    assert pooled.as_dict()["dataset"] == pooled_raw["dataset"]
+    # round-trips through the canonical dict and hashes stably
+    assert parse_config(pooled.as_dict()) == pooled
+    assert config_hash(parse_config(pooled.as_dict())) == config_hash(pooled)
+
+
+@pytest.mark.parametrize(
+    "dataset",
+    [
+        {"name": "nq", "splits": ["train"]},  # the NQ train split is never loaded
+        {"name": "wiki", "splits": ["dev"]},
+        {"name": "pooled", "splits": ["dev"]},  # pooled needs sources
+        {"name": "pooled", "sources": [{"name": "qasper", "splits": ["dev"]}]},  # one source is not pooled
+        {"name": "pooled", "sources": [{"name": "qasper", "splits": ["dev"]}, {"name": "qasper", "splits": ["test"]}]},
+        {"name": "pooled", "sources": [{"name": "qasper", "splits": ["dev"]}, {"name": "nq", "splits": ["test"]}]},
+        {"sources": [{"name": "qasper", "splits": ["dev"]}, {"name": "nq", "splits": ["dev"]}]},
+    ],
+)
+def test_invalid_dataset_blocks_rejected(dataset):
+    with pytest.raises(ValueError):
+        parse_config({**BASE, "dataset": dataset})
 
 
 def test_load_config_from_file(tmp_path):
@@ -68,7 +107,7 @@ def test_config_yaml_is_canonical():
 @pytest.mark.parametrize(
     "mutate",
     [
-        lambda c: c.update(dataset={"name": "nq", "splits": ["dev"]}),
+        lambda c: c.update(dataset={"name": "nq", "splits": ["train"]}),
         lambda c: c.update(chunking={"method": "recursive", "chunk_tokens": 256, "overlap": 0}),
         lambda c: c.update(chunking={"method": "fixed", "chunk_tokens": 256, "overlap": 64}),
         lambda c: c.update(pipeline="vector"),
@@ -157,7 +196,7 @@ def test_load_any_config_dispatches_on_kind(tmp_path):
         {"scopes": ["document"]},
         {"scopes": ["collection", "galaxy"]},
         {"search_depth": 0},
-        {"dataset": {"name": "nq", "splits": ["dev"]}},
+        {"dataset": {"name": "nq", "splits": ["test"]}},
     ],
 )
 def test_invalid_grid_configs_rejected(changes):

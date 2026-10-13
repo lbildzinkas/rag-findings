@@ -7,6 +7,12 @@ or more retrieval pipelines). The config hash is the sha256 of the
 config's canonical JSON, so the same settings always hash identically
 whatever the file's formatting.
 
+The dataset block names either one dataset with its splits (`qasper`,
+`nq`) or several sources labelled `pooled`, whose questions and
+documents are loaded together so every table is computed over both
+while each dataset's n stays visible. A single dataset renders exactly
+as before, so existing config hashes are unchanged.
+
 A grid names its pipelines with `pipelines:` (and the embedders the
 vector-based ones use with `embedders:`); the BM25-only form
 `pipeline: bm25` stays valid and keeps its canonical JSON, and so its hash.
@@ -22,11 +28,61 @@ from typing import Any
 
 import yaml
 
+KNOWN_DATASETS = {"qasper", "nq"}
+DATASET_SPLITS = {"qasper": {"train", "dev", "test"}, "nq": {"dev"}}
+POOLED = "pooled"
+
+
+@dataclass(frozen=True)
+class DatasetRef:
+    """One dataset with the splits the run loads."""
+
+    name: str
+    splits: tuple[str, ...]
+
+    def as_dict(self) -> dict[str, Any]:
+        return {"name": self.name, "splits": list(self.splits)}
+
+
+def _parse_dataset(raw: dict[str, Any]) -> tuple[str, tuple[DatasetRef, ...]]:
+    """The dataset label and its sources: one `{name, splits}` block or a
+    `{name: pooled, sources: [...]}` block."""
+    try:
+        label = raw["name"]
+        if "sources" in raw:
+            sources = tuple(DatasetRef(s["name"], tuple(s["splits"])) for s in raw["sources"])
+        else:
+            sources = (DatasetRef(label, tuple(raw["splits"])),)
+    except (KeyError, TypeError) as exc:
+        raise ValueError(f"invalid dataset block: {exc}") from exc
+    if not isinstance(label, str) or not label:
+        raise ValueError("dataset name must be a non-empty string")
+    if "sources" in raw:
+        if len(sources) < 2:
+            raise ValueError("a sources list needs at least two datasets")
+        if label != POOLED:
+            raise ValueError(f"a multi-source dataset must be labelled {POOLED}, got {label}")
+        if len({s.name for s in sources}) != len(sources):
+            raise ValueError("pooled sources must name each dataset once")
+    for source in sources:
+        if source.name not in KNOWN_DATASETS:
+            raise ValueError(f"unknown dataset: {source.name}")
+        known_splits = DATASET_SPLITS[source.name]
+        if not source.splits or not set(source.splits) <= known_splits:
+            raise ValueError(f"{source.name} splits must be a non-empty subset of {sorted(known_splits)}")
+    return label, sources
+
+
+def _dataset_dict(label: str, sources: tuple[DatasetRef, ...]) -> dict[str, Any]:
+    if len(sources) == 1:
+        return sources[0].as_dict()
+    return {"name": label, "sources": [s.as_dict() for s in sources]}
+
 
 @dataclass(frozen=True)
 class RunConfig:
     dataset: str
-    splits: tuple[str, ...]
+    sources: tuple[DatasetRef, ...]
     chunking_method: str
     chunk_tokens: int
     overlap: int
@@ -40,7 +96,7 @@ class RunConfig:
 
     def as_dict(self) -> dict[str, Any]:
         return {
-            "dataset": {"name": self.dataset, "splits": list(self.splits)},
+            "dataset": _dataset_dict(self.dataset, self.sources),
             "chunking": {
                 "method": self.chunking_method,
                 "chunk_tokens": self.chunk_tokens,
@@ -71,10 +127,10 @@ def load_any_config(path: Path) -> RunConfig | GridConfig:
 
 def parse_config(raw: dict[str, Any]) -> RunConfig:
     try:
-        dataset = raw["dataset"]
+        label, sources = _parse_dataset(raw["dataset"])
         cfg = RunConfig(
-            dataset=dataset["name"],
-            splits=tuple(dataset["splits"]),
+            dataset=label,
+            sources=sources,
             chunking_method=raw["chunking"]["method"],
             chunk_tokens=int(raw["chunking"]["chunk_tokens"]),
             overlap=int(raw["chunking"].get("overlap", 0)),
@@ -93,11 +149,8 @@ def parse_config(raw: dict[str, Any]) -> RunConfig:
 
 
 def _validate(cfg: RunConfig) -> None:
-    if cfg.dataset != "qasper":
+    if cfg.dataset not in KNOWN_DATASETS and cfg.dataset != POOLED:
         raise ValueError(f"unknown dataset: {cfg.dataset}")
-    known_splits = {"train", "dev", "test"}
-    if not cfg.splits or not set(cfg.splits) <= known_splits:
-        raise ValueError(f"splits must be a non-empty subset of {sorted(known_splits)}")
     if cfg.chunking_method != "fixed":
         raise ValueError(f"unknown chunking method: {cfg.chunking_method}")
     if cfg.chunk_tokens <= 0:
@@ -119,8 +172,9 @@ def _validate(cfg: RunConfig) -> None:
 CHUNKING_METHODS = ("fixed", "section_aware", "small_to_big")
 SCOPES = ("collection", "document")
 # the production line first, then its ablations: the order of every table
-PIPELINES = ("production", "hybrid", "vector", "bm25")
-EMBEDDING_PIPELINES = ("production", "hybrid", "vector")
+PRODUCTION_LINE = "hybrid-rerank"  # hybrid search, then the reranker
+PIPELINES = (PRODUCTION_LINE, "hybrid", "vector", "bm25")
+EMBEDDING_PIPELINES = (PRODUCTION_LINE, "hybrid", "vector")
 
 
 @dataclass(frozen=True)
@@ -154,7 +208,7 @@ class ChunkingSpec:
 @dataclass(frozen=True)
 class GridConfig:
     dataset: str
-    splits: tuple[str, ...]
+    sources: tuple[DatasetRef, ...]
     pipelines: tuple[str, ...]
     chunkings: tuple[ChunkingSpec, ...]
     budgets: tuple[int, ...]
@@ -190,7 +244,7 @@ class GridConfig:
             }
         return {
             "kind": "grid",
-            "dataset": {"name": self.dataset, "splits": list(self.splits)},
+            "dataset": _dataset_dict(self.dataset, self.sources),
             **pipelines,
             "chunkings": [c.as_dict() for c in self.chunkings],
             "budgets": list(self.budgets),
@@ -230,9 +284,10 @@ def parse_grid_config(raw: dict[str, Any]) -> GridConfig:
         if ("pipeline" in raw) == ("pipelines" in raw):
             raise ValueError("give exactly one of `pipeline` and `pipelines`")
         pipelines = tuple(raw["pipelines"]) if "pipelines" in raw else (raw["pipeline"],)
+        label, sources = _parse_dataset(raw["dataset"])
         cfg = GridConfig(
-            dataset=raw["dataset"]["name"],
-            splits=tuple(raw["dataset"]["splits"]),
+            dataset=label,
+            sources=sources,
             pipelines=pipelines,
             chunkings=tuple(_parse_chunking(c) for c in raw["chunkings"]),
             budgets=tuple(int(b) for b in raw["budgets"]),
@@ -254,11 +309,8 @@ def parse_grid_config(raw: dict[str, Any]) -> GridConfig:
 
 
 def _validate_grid(cfg: GridConfig) -> None:
-    if cfg.dataset != "qasper":
+    if cfg.dataset not in KNOWN_DATASETS and cfg.dataset != POOLED:
         raise ValueError(f"unknown dataset: {cfg.dataset}")
-    known_splits = {"train", "dev", "test"}
-    if not cfg.splits or not set(cfg.splits) <= known_splits:
-        raise ValueError(f"splits must be a non-empty subset of {sorted(known_splits)}")
     _validate_pipelines(cfg)
     names = [c.name for c in cfg.chunkings]
     if not names or len(set(names)) != len(names):
@@ -289,7 +341,7 @@ def _validate_pipelines(cfg: GridConfig) -> None:
         raise ValueError(f"embedders must be distinct values of {sorted(EMBEDDERS)}")
     needs_embedder = bool(set(cfg.pipelines) & set(EMBEDDING_PIPELINES))
     if needs_embedder != bool(cfg.embedders):
-        raise ValueError("embedders are required by, and only by, the vector, hybrid and production pipelines")
+        raise ValueError("embedders are required by, and only by, the vector, hybrid and hybrid-rerank pipelines")
     if cfg.rrf_k <= 0 or cfg.rerank_depth <= 0:
         raise ValueError("rrf_k and rerank_depth must be positive")
 

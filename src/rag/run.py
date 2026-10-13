@@ -1,13 +1,13 @@
 """`rag run`: one end-to-end retrieval eval from a config file.
 
-Loads the configured dataset splits, builds the document store, chunks
+Loads the configured dataset sources (QASPER splits, the Natural
+Questions subset, or both pooled), builds the document store, chunks
 every document with the configured chunking, indexes the whole
 collection for BM25, retrieves per question, packs whole chunks into the
 budget (production view), scores retrieval recall and precision against
-the labelled spans, writes per-question results and a run manifest under
-runs/ (git-ignored) and the committed markdown result table R1 under
-results/.
-"""
+the labelled spans, writes per-question results and a run manifest
+under runs/ (git-ignored, namespaced per dataset label) and the
+committed markdown result table R1 under results/."""
 
 from __future__ import annotations
 
@@ -19,9 +19,11 @@ from pathlib import Path
 
 from . import __version__
 from .chunking import Chunk, chunk_text, fixed_windows
-from .config import RunConfig, config_hash, config_yaml, load_config
+from .config import DatasetRef, RunConfig, config_hash, config_yaml, load_config
 from .documents import Document
+from .labels import question_query_type
 from .metrics import QuestionScore, mean, score_question
+from .nq import load_nq
 from .packing import pack
 from .paths import Paths
 from .qasper import (
@@ -32,6 +34,7 @@ from .qasper import (
     load_split,
     verify_spans,
 )
+from .query_type import QUERY_TYPES
 from .retrieval import BM25Index
 from .setup_cmd import ensure_split_files
 from .tokens import TokenText
@@ -45,6 +48,8 @@ class RunOutcome:
     config_hash: str
     n_questions: int
     excluded_by_reason: dict[str, int]
+    query_types: dict[str, int]
+    query_types_by_dataset: dict[str, dict[str, int]]
     mean_recall: float
     mean_precision: float
     result_table: Path
@@ -108,12 +113,19 @@ def gold_token_sets(question, tokenized: dict[str, TokenText]) -> list[tuple[int
     ]
 
 
-def load_qasper(paths: Paths, split_names: tuple[str, ...]) -> tuple[list[QasperSplit], dict[str, Document], int]:
-    """Load the splits and their documents, check question ids are unique
-    and every labelled span round-trips; returns (splits, documents by id,
-    spans verified)."""
-    split_paths = ensure_split_files(paths.data, split_names)
-    splits = [load_split(name, split_paths[name]) for name in sorted(split_paths)]
+def load_datasets(paths: Paths, sources: tuple[DatasetRef, ...]) -> tuple[list, dict[str, Document], int]:
+    """Load every source's splits (QASPER jsons, the Natural Questions
+    subset), check ids are unique across them and every labelled span
+    round-trips; returns (splits, documents by id, spans verified)."""
+    splits: list = []
+    for source in sources:
+        if source.name == "qasper":
+            split_paths = ensure_split_files(paths.data, source.splits)
+            splits.extend(load_split(name, split_paths[name]) for name in sorted(split_paths))
+        elif source.name == "nq":
+            splits.extend(load_nq(paths, split=name) for name in source.splits)
+        else:  # pragma: no cover - config validation rejects unknown names
+            raise ValueError(f"unknown dataset: {source.name}")
     documents = _all_documents(splits)
 
     seen_ids: set[str] = set()
@@ -123,10 +135,15 @@ def load_qasper(paths: Paths, split_names: tuple[str, ...]) -> tuple[list[Qasper
                 raise ValueError(f"duplicate question id: {question.question_id}")
             seen_ids.add(question.question_id)
 
-    # every labelled span round-trips: offsets slice back to the quote and
-    # the source hash matches the document's
     spans_verified = sum(verify_spans(split, documents_by_id=documents) for split in splits)
     return splits, documents, spans_verified
+
+
+def dataset_split_hashes(splits: list) -> dict[str, str]:
+    """Dataset hashes keyed by split, disambiguated per dataset when several
+    datasets are loaded together (qasper/dev, nq/dev)."""
+    pooled = len({split.dataset for split in splits}) > 1
+    return {(f"{split.dataset}/{split.split}" if pooled else split.split): split.dataset_hash for split in splits}
 
 
 def excluded_counts(splits: list[QasperSplit]) -> dict[str, int]:
@@ -137,9 +154,7 @@ def excluded_counts(splits: list[QasperSplit]) -> dict[str, int]:
     return excluded_by_reason
 
 
-def write_result_table(
-    path: Path, cfg: RunConfig, cfg_hash: str, splits: list[QasperSplit], outcome: RunOutcome
-) -> None:
+def write_result_table(path: Path, cfg: RunConfig, cfg_hash: str, splits: list, outcome: RunOutcome) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     lines: list[str] = []
     title = (
@@ -161,8 +176,8 @@ def write_result_table(
     lines.append("")
     lines.append("| split | sha256 |")
     lines.append("|---|---|")
-    for split in splits:
-        lines.append(f"| {split.split} | `{split.dataset_hash}` |")
+    for split, dataset_hash in dataset_split_hashes(splits).items():
+        lines.append(f"| {split} | `{dataset_hash}` |")
     lines.append("")
     lines.append("## Questions")
     lines.append("")
@@ -173,6 +188,23 @@ def write_result_table(
     for reason in EXCLUSION_ORDER:
         lines.append(f"| excluded: {reason} | {outcome.excluded_by_reason.get(reason, 0)} |")
     lines.append(f"| total | {total} |")
+    lines.append("")
+    lines.append("## Query types")
+    lines.append("")
+    if outcome.query_types_by_dataset:
+        lines.append("| dataset | query type | n |")
+        lines.append("|---|---|---|")
+        for dataset in sorted(outcome.query_types_by_dataset):
+            counts = outcome.query_types_by_dataset[dataset]
+            for t in QUERY_TYPES:
+                lines.append(f"| {dataset} | {t} | {counts.get(t, 0)} |")
+            lines.append(f"| {dataset} | total | {sum(counts.values())} |")
+    else:
+        lines.append("| query type | n |")
+        lines.append("|---|---|")
+        for t in QUERY_TYPES:
+            lines.append(f"| {t} | {outcome.query_types.get(t, 0)} |")
+        lines.append(f"| total | {sum(outcome.query_types.values())} |")
     lines.append("")
     lines.append("## Retrieval")
     lines.append("")
@@ -189,11 +221,11 @@ def run(config_path: Path, paths: Paths, encoding=None) -> RunOutcome:
     cfg = load_config(config_path)
     cfg_hash = config_hash(cfg)
 
-    splits, documents, spans_verified = load_qasper(paths, cfg.splits)
+    splits, documents, spans_verified = load_datasets(paths, cfg.sources)
 
     chunks, tokenized, texts = _build_chunks(documents, cfg.chunk_tokens, encoding)
 
-    run_dir = paths.run_dir(cfg.run_name)
+    run_dir = paths.run_dir(cfg.run_name, cfg.dataset)
     run_dir.mkdir(parents=True, exist_ok=True)
     index = BM25Index(run_dir / "lance")
     index.build(chunks, texts)
@@ -201,8 +233,14 @@ def run(config_path: Path, paths: Paths, encoding=None) -> RunOutcome:
     records: list[dict] = []
     recalls: list[float] = []
     precisions: list[float] = []
+    query_types = {t: 0 for t in QUERY_TYPES}
+    query_types_by_dataset: dict[str, dict[str, int]] = {}
     for split in splits:
         for question in split.questions:
+            qtype = question_query_type(question)
+            query_types[qtype] += 1
+            per_dataset = query_types_by_dataset.setdefault(split.dataset, {t: 0 for t in QUERY_TYPES})
+            per_dataset[qtype] += 1
             ranked = index.search(question.text, cfg.search_depth)
             top_n = cfg.top_n if cfg.view == "production" else max(len(ranked), 1)
             packed = pack([item.chunk for item in ranked], cfg.budget, top_n)
@@ -211,10 +249,12 @@ def run(config_path: Path, paths: Paths, encoding=None) -> RunOutcome:
             precisions.append(score.precision)
             records.append(
                 {
+                    "dataset": split.dataset,
                     "question_id": question.question_id,
                     "doc_id": question.doc_id,
                     "split": question.split,
                     "question": question.text,
+                    "query_type": qtype,
                     "annotators": len(question.annotators),
                     "kept_annotator": score.annotator,
                     "recall": score.recall,
@@ -245,15 +285,18 @@ def run(config_path: Path, paths: Paths, encoding=None) -> RunOutcome:
         config_hash=cfg_hash,
         n_questions=len(records),
         excluded_by_reason=excluded_by_reason,
+        query_types=query_types,
+        query_types_by_dataset=(query_types_by_dataset if len(query_types_by_dataset) > 1 else {}),
         mean_recall=mean(recalls),
         mean_precision=mean(precisions),
         result_table=paths.results / cfg.dataset / f"r1-{cfg.run_name}.md",
     )
 
+    nq_split = next((split for split in splits if split.dataset == "nq"), None)
     manifest = {
         "config": cfg.as_dict(),
         "config_hash": cfg_hash,
-        "datasets": {split.split: split.dataset_hash for split in splits},
+        "datasets": dataset_split_hashes(splits),
         "versions": library_versions(),
         "counts": {
             "documents": len(documents),
@@ -261,7 +304,18 @@ def run(config_path: Path, paths: Paths, encoding=None) -> RunOutcome:
             "questions": outcome.n_questions,
             "excluded_by_reason": excluded_by_reason,
             "labelled_spans_verified": spans_verified,
-            "evidence_anchoring": {split.split: split.evidence_counts for split in splits},
+            "query_types": outcome.query_types,
+            "query_types_by_dataset": query_types_by_dataset,
+            "evidence_anchoring": {
+                key: split.evidence_counts for key, split in zip(dataset_split_hashes(splits), splits, strict=True)
+            },
+            "nq_subset": {
+                "file": "configs/nq-subset.txt",
+                "ids": nq_split.subset_size,
+                "sha256": nq_split.subset_hash,
+            }
+            if nq_split is not None
+            else None,
         },
         "duration_seconds": round(time.monotonic() - started, 3),
     }
@@ -273,6 +327,7 @@ def run(config_path: Path, paths: Paths, encoding=None) -> RunOutcome:
     print(f"  labelled spans verified: {spans_verified}")
     for reason in EXCLUSION_ORDER:
         print(f"  excluded {reason}: {excluded_by_reason.get(reason, 0)}")
+    print("  query types: " + ", ".join(f"{t} {n}" for t, n in outcome.query_types.items()))
     print(f"  chunks indexed: {len(chunks)} over {len(documents)} documents")
     print(f"  mean retrieval recall:    {outcome.mean_recall:.4f}")
     print(f"  mean retrieval precision: {outcome.mean_precision:.4f}")

@@ -494,5 +494,5 @@ No chunk exceeds nomic's 8192-token input.
 | small-to-big | 4096 | 0.2597 | 0.1815 | -0.0782 | 0.2978 | 0.2279 | -0.0699 |
 | small-to-big | 8192 | 0.2597 | 0.1815 | -0.0782 | 0.3542 | 0.2763 | -0.0780 |
 
-Precise: every usable annotation cites one passage; context: every one cites several; mixed: otherwise. Mixed questions count in the means of R2 but not in this contrast.
+Query types are assigned from the labels: for Natural Questions, short answer means precise and long-answer-only means context; for QASPER, precise means every usable annotation cites one passage, context that every one cites several and mixed otherwise (only that rule produces mixed questions, which count in the means of R2 but not in this contrast).
 n/a: a fixed chunking whose chunk is bigger than the budget is not scored at that budget.

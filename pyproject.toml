@@ -9,6 +9,7 @@ dependencies = [
     "tiktoken>=0.13",
     "pyyaml>=6.0",
     "chonkie>=1.7",
+    "numpy>=2.0",
     "sentence-transformers>=5.0,<6",
     # nomic-embed-text-v1.5's remote code fails under transformers 5.x;
     # 4.48 is the floor gte-reranker-modernbert-base (ModernBERT) needs

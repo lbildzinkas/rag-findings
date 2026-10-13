@@ -26,14 +26,14 @@ from tests.test_grid import GRID, build_env, table_rows
 
 PRODUCTION = {
     **{k: v for k, v in GRID.items() if k != "pipeline"},
-    "pipelines": ["production", "hybrid", "vector", "bm25"],
+    "pipelines": ["hybrid-rerank", "hybrid", "vector", "bm25"],
     "embedders": ["bge-small", "nomic"],
     "rrf_k": 60,
     "rerank_depth": 3,
 }
 BLOCKS = [
-    ("production", "bge-small"),
-    ("production", "nomic"),
+    ("hybrid-rerank", "bge-small"),
+    ("hybrid-rerank", "nomic"),
     ("hybrid", "bge-small"),
     ("hybrid", "nomic"),
     ("vector", "bge-small"),
@@ -135,18 +135,18 @@ def test_rerank_head_scores_only_the_head_and_keeps_the_tail_in_order():
 
 def test_every_pipeline_and_embedder_is_scored_in_both_scopes(production_run):
     cfg, outcome, _, root = production_run
-    results = pq.read_table(root / "runs" / "grid" / "results.parquet").to_pylist()
+    results = pq.read_table(root / "runs" / "qasper" / "grid" / "results.parquet").to_pylist()
     per_cell = len(cfg.chunkings) * len(cfg.scopes) * len(cfg.budgets) * 3
     assert len(results) == outcome.n_questions * len(BLOCKS) * per_cell
     assert {(r["pipeline"], r["embedder"]) for r in results} == set(BLOCKS)
     assert {r["scope"] for r in results} == {"collection", "document"}
-    fixed_k = pq.read_table(root / "runs" / "grid" / "fixed_k.parquet").to_pylist()
+    fixed_k = pq.read_table(root / "runs" / "qasper" / "grid" / "fixed_k.parquet").to_pylist()
     assert {(r["pipeline"], r["embedder"]) for r in fixed_k} == set(BLOCKS)
 
 
 def test_truncation_flag_marks_chunkings_with_chunks_over_the_input_limit(production_run):
     _, _, _, root = production_run
-    results = pq.read_table(root / "runs" / "grid" / "results.parquet").to_pylist()
+    results = pq.read_table(root / "runs" / "qasper" / "grid" / "results.parquet").to_pylist()
     shares = {(r["chunking"], r["embedder"]): r["truncated_share"] for r in results}
     # bge-small reads 8 tokens per byte: chunks over 64 bytes exceed its 512-token input
     for chunking in ("fixed-16", "fixed-32", "fixed-64", "small-to-big"):
@@ -166,7 +166,7 @@ def test_truncation_flag_marks_chunkings_with_chunks_over_the_input_limit(produc
 
 def test_reranker_sees_at_most_the_fused_top_depth_and_a_rerun_scores_nothing(production_run):
     cfg, outcome, models, root = production_run
-    manifest = json.loads((root / "runs" / "grid" / "manifest.json").read_text(encoding="utf-8"))
+    manifest = json.loads((root / "runs" / "qasper" / "grid" / "manifest.json").read_text(encoding="utf-8"))
     assert manifest["reranker"]["max_candidates_per_list"] <= cfg.rerank_depth
     assert manifest["reranker"]["pairs_scored"] == len(models.reranker_model.pairs) > 0
     assert manifest["duration_seconds"] > 0
@@ -175,7 +175,7 @@ def test_reranker_sees_at_most_the_fused_top_depth_and_a_rerun_scores_nothing(pr
     again = FakeModels()
     rerun = run_grid(parse_grid_config(PRODUCTION), Paths(root=root), encoding=FakeEncoding(), models=again)
     assert again.reranker_model.pairs == []
-    manifest = json.loads((root / "runs" / "grid" / "manifest.json").read_text(encoding="utf-8"))
+    manifest = json.loads((root / "runs" / "qasper" / "grid" / "manifest.json").read_text(encoding="utf-8"))
     assert manifest["reranker"]["pairs_scored"] == 0
     assert manifest["reranker"]["pairs_cached"] > 0
     assert {p.name: p.read_bytes() for p in rerun.tables} == {p.name: p.read_bytes() for p in outcome.tables}
@@ -192,9 +192,9 @@ def test_small_to_big_reranks_the_matched_children_not_the_parents(tmp_path):
 
 def test_the_unreranked_tail_is_flagged_only_on_the_production_line(production_run):
     _, _, _, root = production_run
-    results = pq.read_table(root / "runs" / "grid" / "results.parquet").to_pylist()
+    results = pq.read_table(root / "runs" / "qasper" / "grid" / "results.parquet").to_pylist()
     for row in results:
-        if row["pipeline"] != "production" or not row["scored"]:
+        if row["pipeline"] != "hybrid-rerank" or not row["scored"]:
             assert row["used_tail"] is None
         else:
             assert row["used_tail"] is not None
@@ -223,7 +223,7 @@ def test_r5_lists_production_first_and_fills_or_explains_every_cell(production_r
             size = int(row[2].split("-")[1]) if row[2].startswith("fixed-") else None
             unscored = size is not None and size > budget
             assert all((cell == "n/a: chunk > budget") == unscored for cell in row[3:7]), row
-            if row[0] != "production":
+            if row[0] != "hybrid-rerank":
                 assert row[8:] == ["n/a: no reranker", "n/a: no reranker"]
 
 
@@ -248,7 +248,7 @@ def test_bm25_only_configs_keep_their_hash():
 @pytest.mark.parametrize(
     ("change", "message"),
     [
-        ({"pipelines": ["production"], "embedders": []}, "embedders are required"),
+        ({"pipelines": ["hybrid-rerank"], "embedders": []}, "embedders are required"),
         ({"pipelines": ["bm25"], "embedders": ["nomic"]}, "embedders are required"),
         ({"pipelines": ["rerank"]}, "pipelines must be"),
         ({"embedders": ["e5"]}, "embedders must be"),
@@ -275,9 +275,10 @@ def test_cache_round_trips_vectors_and_scores(tmp_path):
 
 def test_sample_is_seeded_and_written_beside_the_run(tmp_path, monkeypatch):
     build_env(tmp_path)
-    from rag.run import load_qasper
+    from rag.config import DatasetRef
+    from rag.run import load_datasets
 
-    splits, _, _ = load_qasper(Paths(root=tmp_path), ("dev", "test"))
+    splits, _, _ = load_datasets(Paths(root=tmp_path), (DatasetRef("qasper", ("dev", "test")),))
     first = sample_papers(splits, 1, seed=0)
     assert sample_papers(splits, 1, seed=0) == first
     assert sum(len(s.documents) for s in first) == 1
@@ -288,7 +289,9 @@ def test_sample_is_seeded_and_written_beside_the_run(tmp_path, monkeypatch):
     config = tmp_path / "grid.yaml"
     config.write_text(json.dumps(GRID), encoding="utf-8")
     assert main(["run", str(config), "--root", str(tmp_path), "--sample", "1"]) == 0
-    assert (tmp_path / "runs" / "grid-sample1" / "results" / "qasper" / "r2-grid.md").is_file()
+    assert (tmp_path / "runs" / "qasper" / "grid-sample1" / "results" / "qasper" / "r2-grid.md").is_file()
     assert not (tmp_path / "results").exists()
-    r2 = (tmp_path / "runs" / "grid-sample1" / "results" / "qasper" / "r2-grid.md").read_text(encoding="utf-8")
-    assert "seeded sample of 1 papers (seed 0)" in r2
+    r2 = (tmp_path / "runs" / "qasper" / "grid-sample1" / "results" / "qasper" / "r2-grid.md").read_text(
+        encoding="utf-8"
+    )
+    assert "seeded sample of 1 documents (seed 0)" in r2

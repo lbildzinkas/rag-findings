@@ -9,23 +9,27 @@ table (a smaller cap) and the fair view (no cap). A fixed chunking whose
 chunk is bigger than the budget is not scored at that budget. Retrieval
 sees only the question text, never its query type.
 
-Per-question results go to runs/<run_name>/ (git-ignored) as Parquet, one
-row per pipeline and embedder (`pipeline`, `embedder`):
+Per-question results go to runs/<dataset>/<run_name>/ (git-ignored) as
+Parquet, one row per pipeline and embedder (`pipeline`, `embedder`):
 
-- questions.parquet: one row per question, with its query type;
+- questions.parquet: one row per question, with its query type and,
+  for Natural Questions, whether it is a precise question with a
+  short-answer span;
 - results.parquet: one row per question x pipeline x embedder x chunking
   x scope x view x top-N cap x budget, with retrieval recall and
   precision (null when not scored), whether the top-N cap bound, the
+  short-answer span recall for NQ precise questions (null elsewhere), the
   share of the chunking's chunks longer than the embedder's input limit
   (null without an embedder) and whether packing used the production
   line's unreranked tail (null for pipelines without the reranker);
 - fixed_k.parquet: one row per question x pipeline x embedder x chunking
   x scope x k, with hit@k and recall@k (collection search only).
 
-The result tables R2, R3, R4 and R2w (and R5 when there are embedders)
-are rendered from those files. `sample` restricts the run to a seeded
-sample of papers, written to runs/<run_name>-sample<N>/ with its tables
-inside it, so the committed tables under results/ are never overwritten.
+The result tables R2, R3, R4, R2w, R5 (when there are embedders) and -
+for a Natural Questions run - R6 are rendered from those files. `sample`
+restricts the run to a seeded sample of documents, written to
+runs/<dataset>/<run_name>-sample<N>/ with its tables inside it, so the
+committed tables under results/ are never overwritten.
 """
 
 from __future__ import annotations
@@ -42,21 +46,22 @@ import pyarrow.parquet as pq
 
 from .cache import Cache
 from .chunking import Chunk, chunk_text, fixed_windows, section_aware, small_to_big_children, verify_tiling
-from .config import ChunkingSpec, GridConfig, config_hash
+from .config import PRODUCTION_LINE, ChunkingSpec, GridConfig, config_hash
 from .documents import Document
+from .labels import question_query_type
 from .metrics import score_fixed_k, score_question
 from .models import EMBEDDERS, RERANKER, Models, ModelSource
 from .packing import pack, pack_small_to_big
 from .paths import Paths
 from .pipelines import Ranking, Retriever
-from .qasper import QasperSplit, Question
-from .query_type import QUERY_TYPES, query_type
+from .qasper import Question
+from .query_type import PRECISE, QUERY_TYPES
 from .retrieval import BM25Index
-from .run import excluded_counts, gold_token_sets, library_versions, load_qasper
+from .run import dataset_split_hashes, excluded_counts, gold_token_sets, library_versions, load_datasets
 from .tables import write_tables
 from .tokens import TokenText
 
-SCHEMA_VERSION = "2"  # 2: truncated_share and used_tail
+SCHEMA_VERSION = "3"  # 2: short_recall; 3: truncated_share and used_tail
 
 QUESTIONS_SCHEMA = pa.schema(
     [
@@ -67,6 +72,7 @@ QUESTIONS_SCHEMA = pa.schema(
         ("query_type", pa.string()),
         ("annotators", pa.int32()),
         ("passages", pa.list_(pa.int32())),
+        ("short_answer", pa.bool_()),  # NQ precise questions with a short-answer span
     ]
 )
 
@@ -96,6 +102,7 @@ RESULTS_SCHEMA = pa.schema(
         ("n_chunks", pa.int32()),
         ("kept_annotator", pa.int32()),
         ("cap_bound", pa.bool_()),  # null in the fair view
+        ("short_recall", pa.float64()),  # NQ short-answer span recall, null elsewhere
         ("truncated_share", pa.float64()),  # null without an embedder
         ("used_tail", pa.bool_()),  # null without the reranker, or when not scored
     ]
@@ -207,15 +214,17 @@ def _views(cfg: GridConfig) -> list[tuple[str, int | None]]:
 def _score_question(
     cfg: GridConfig,
     question: Question,
+    dataset: str,
     qtype: str,
     gold: list[tuple[int, ...]],
+    short_gold: list[tuple[int, ...]],
     chunkings: list[_Chunking],
     retriever: Retriever,
     results: _Columns,
     fixed_k: _Columns,
 ) -> None:
     keys = {
-        "dataset": cfg.dataset,
+        "dataset": dataset,
         "split": question.split,
         "question_id": question.question_id,
         "doc_id": question.doc_id,
@@ -234,13 +243,14 @@ def _score_question(
                     "scope": scope,
                     "truncated_share": truncated,
                 }
-                _score_ranking(cfg, question, gold, chunking, scope, ranking, cell, results, fixed_k)
+                _score_ranking(cfg, question, gold, short_gold, chunking, scope, ranking, cell, results, fixed_k)
 
 
 def _score_ranking(
     cfg: GridConfig,
     question: Question,
     gold: list[tuple[int, ...]],
+    short_gold: list[tuple[int, ...]],
     chunking: _Chunking,
     scope: str,
     ranking: Ranking,
@@ -274,6 +284,7 @@ def _score_ranking(
             packed = fair if top_n is None else chunking.packer(ranked, budget, top_n)
             used_tail = None if head is None else len(packed) > len(chunking.packer(head, budget, top_n))
             score = score_question(gold, packed, question.doc_id)
+            short_recall = score_question(short_gold, packed, question.doc_id).recall if short_gold else None
             results.add(
                 **cell,
                 view=view,
@@ -282,6 +293,7 @@ def _score_ranking(
                 scored=True,
                 recall=score.recall,
                 precision=score.precision,
+                short_recall=short_recall,
                 retrieved_tokens=score.retrieved_tokens,
                 gold_tokens=score.gold_tokens,
                 n_chunks=len(packed),
@@ -301,9 +313,9 @@ class GridOutcome:
     tables: tuple[Path, ...]
 
 
-def sample_papers(splits: list[QasperSplit], n: int, seed: int) -> list[QasperSplit]:
-    """Keep a seeded random sample of `n` papers (all of them when fewer),
-    with their questions and exclusions."""
+def sample_papers(splits: list, n: int, seed: int) -> list:
+    """Keep a seeded random sample of `n` documents (all of them when
+    fewer), with their questions and exclusions."""
     if n <= 0:
         raise ValueError(f"sample must be positive, got {n}")
     doc_ids = sorted(doc.doc_id for split in splits for doc in split.documents)
@@ -331,7 +343,7 @@ def _model_manifest(cfg: GridConfig) -> dict:
         for name in cfg.embedders
     }
     out: dict = {"embedders": embedders}
-    if "production" in cfg.pipelines:
+    if PRODUCTION_LINE in cfg.pipelines:
         out["reranker"] = {"model_id": RERANKER.model_id, "revision": RERANKER.revision}
     return out
 
@@ -357,24 +369,23 @@ def run_grid(
 ) -> GridOutcome:
     started = time.monotonic()
     cfg_hash = config_hash(cfg)
-    splits, documents, spans_verified = load_qasper(paths, cfg.splits)
+    splits, documents, spans_verified = load_datasets(paths, cfg.sources)
     run_name = cfg.run_name
-    results_dir = paths.results
     if sample is not None:
         splits = sample_papers(splits, sample, cfg.seed)
         documents = {doc.doc_id: doc for split in splits for doc in split.documents}
         run_name = f"{cfg.run_name}-sample{sample}"
-        results_dir = paths.run_dir(run_name) / "results"
     tokenized = {doc_id: TokenText(documents[doc_id].text, encoding) for doc_id in sorted(documents)}
 
-    run_dir = paths.run_dir(run_name)
+    run_dir = paths.run_dir(run_name, cfg.dataset)
+    results_dir = paths.results if sample is None else run_dir / "results"
     run_dir.mkdir(parents=True, exist_ok=True)
     cache = Cache(paths.cache / "rag-cache.sqlite")
     retriever = Retriever(
         cfg, documents, models if models is not None else Models(paths.data), cache, run_dir / "lance"
     )
-    all_questions = [question for split in splits for question in split.questions]
-    retriever.embed_questions(all_questions)
+    all_questions = [(split.dataset, question) for split in splits for question in split.questions]
+    retriever.embed_questions([question for _, question in all_questions])
     chunkings: list[_Chunking] = []
     chunk_counts: dict[str, int] = {}
     shared_characters: dict[str, int] = {}
@@ -390,21 +401,40 @@ def run_grid(
     results = _Columns(RESULTS_SCHEMA)
     fixed_k = _Columns(FIXED_K_SCHEMA)
     query_types = {t: 0 for t in QUERY_TYPES}
-    for done, question in enumerate(all_questions, start=1):
+    query_types_by_dataset: dict[str, dict[str, int]] = {}
+    for done, (dataset, question) in enumerate(all_questions, start=1):
         passages = [len(annotator) for annotator in question.annotators]
-        qtype = query_type(passages)
+        qtype = question_query_type(question)
         query_types[qtype] += 1
+        per_dataset = query_types_by_dataset.setdefault(dataset, {t: 0 for t in QUERY_TYPES})
+        per_dataset[qtype] += 1
+        short_scored = qtype == PRECISE and bool(question.short_annotators)
         questions.add(
-            dataset=cfg.dataset,
+            dataset=dataset,
             split=question.split,
             question_id=question.question_id,
             doc_id=question.doc_id,
             query_type=qtype,
             annotators=len(passages),
             passages=passages,
+            short_answer=short_scored or None,
         )
         gold = gold_token_sets(question, tokenized)
-        _score_question(cfg, question, qtype, gold, chunkings, retriever, results, fixed_k)
+        short_gold = (
+            [
+                tuple(
+                    sorted(
+                        frozenset().union(
+                            *(tokenized[question.doc_id].token_indices_overlapping(s.start, s.end) for s in annotator)
+                        )
+                    )
+                )
+                for annotator in question.short_annotators
+            ]
+            if short_scored
+            else []
+        )
+        _score_question(cfg, question, dataset, qtype, gold, short_gold, chunkings, retriever, results, fixed_k)
         if not cfg.bm25_only and (done % 50 == 0 or done == len(all_questions)):
             elapsed = time.monotonic() - indexed
             print(
@@ -420,26 +450,37 @@ def run_grid(
     results.write(run_dir / "results.parquet")
     fixed_k.write(run_dir / "fixed_k.parquet")
 
-    dataset_hashes = {s.split: s.dataset_hash for s in splits}
+    dataset_hashes = dataset_split_hashes(splits)
     tables = write_tables(cfg, cfg_hash, dataset_hashes, run_dir, results_dir, sample=sample)
     n_questions = sum(query_types.values())
+    nq_split = next((split for split in splits if split.dataset == "nq"), None)
     manifest = {
         "config": cfg.as_dict(),
         "config_hash": cfg_hash,
         "schema_version": SCHEMA_VERSION,
-        "sample": None if sample is None else {"papers": len(documents), "requested": sample, "seed": cfg.seed},
-        "datasets": {split.split: split.dataset_hash for split in splits},
+        "sample": None if sample is None else {"documents": len(documents), "requested": sample, "seed": cfg.seed},
+        "datasets": dataset_hashes,
         "versions": library_versions() | ({} if cfg.bm25_only else _model_versions()),
         "counts": {
             "documents": len(documents),
             "chunks": chunk_counts,
             "questions": n_questions,
             "query_types": query_types,
+            "query_types_by_dataset": query_types_by_dataset,
             "excluded_by_reason": excluded_counts(splits),
             "labelled_spans_verified": spans_verified,
             "documents_tiled_per_chunking": len(documents),
             "multibyte_characters_shared_at_chunk_boundaries": shared_characters,
-            "evidence_anchoring": {split.split: split.evidence_counts for split in splits},
+            "evidence_anchoring": {
+                key: split.evidence_counts for key, split in zip(dataset_hashes, splits, strict=True)
+            },
+            "nq_subset": {
+                "file": "configs/nq-subset.txt",
+                "ids": nq_split.subset_size,
+                "sha256": nq_split.subset_hash,
+            }
+            if nq_split is not None
+            else None,
         },
         "duration_seconds": round(time.monotonic() - started, 3),
     }

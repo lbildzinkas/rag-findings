@@ -1,4 +1,4 @@
-"""Command line entry point: `rag setup` and `rag run <config>`."""
+"""Command line entry point: `rag setup`, `rag sample`, `rag run <config>` and `rag headroom <config>`."""
 
 from __future__ import annotations
 
@@ -18,7 +18,9 @@ def main(argv: list[str] | None = None) -> int:
     sub = parser.add_subparsers(dest="command", required=True)
 
     setup_parser = sub.add_parser(
-        "setup", help="download and verify QASPER v0.3 dev and test, and the pinned embedders and reranker"
+        "setup",
+        help="download and verify QASPER v0.3 dev and test, the Natural Questions dev config, and the pinned "
+        "embedders and reranker",
     )
     setup_parser.add_argument(
         "--root",
@@ -27,6 +29,33 @@ def main(argv: list[str] | None = None) -> int:
     )
     setup_parser.add_argument(
         "--no-models", action="store_true", help="skip the model downloads (enough for BM25-only runs)"
+    )
+
+    sample_parser = sub.add_parser(
+        "sample", help="sample the committed Natural Questions subset id list from the dev config"
+    )
+    sample_parser.add_argument(
+        "--seed",
+        type=int,
+        default=0,
+        help="sampling seed recorded in the id list header (default: 0)",
+    )
+    sample_parser.add_argument(
+        "--per-type",
+        type=int,
+        default=500,
+        help="questions per query type: short answer and long-answer-only (default: 500)",
+    )
+    sample_parser.add_argument(
+        "--out",
+        type=Path,
+        default=None,
+        help="id list path (default: configs/nq-subset.txt under the root)",
+    )
+    sample_parser.add_argument(
+        "--root",
+        default=None,
+        help="project root holding data/ (default: current directory)",
     )
 
     run_parser = sub.add_parser("run", help="run a retrieval eval (one cell, or a grid with `kind: grid`)")
@@ -44,14 +73,27 @@ def main(argv: list[str] | None = None) -> int:
         help="grid runs only: a seeded sample of N papers, with outputs and tables under runs/<run_name>-sampleN/",
     )
 
+    headroom_parser = sub.add_parser(
+        "headroom", help="routing headroom, the router gate and the interaction, from grid run results"
+    )
+    headroom_parser.add_argument("config", type=Path, help="path to the headroom config YAML")
+    headroom_parser.add_argument(
+        "--root",
+        default=None,
+        help="project root holding runs/ and results/ (default: current directory)",
+    )
+
     args = parser.parse_args(argv)
     paths = _paths(args)
 
     if args.command == "setup":
+        from .nq import setup_nq
         from .setup_cmd import setup
         from .tokens import get_encoding
 
         for line in setup(paths.data):
+            print(line)
+        for line in setup_nq(paths.data):
             print(line)
         if not args.no_models:
             from .models import setup_models
@@ -60,6 +102,22 @@ def main(argv: list[str] | None = None) -> int:
                 print(line)
         get_encoding()  # warm the tokenizer cache so runs need no network
         print("setup complete")
+        return 0
+
+    if args.command == "sample":
+        from .nq import ensure_nq_shards, sample_subset, subset_ids_path
+
+        shard_paths = ensure_nq_shards(paths.data)
+        out_path = args.out if args.out is not None else subset_ids_path(paths.root)
+        funnel = sample_subset(shard_paths, seed=args.seed, per_type=args.per_type, out_path=out_path)
+        print(
+            f"sampled {funnel['sampled_short']} short-answer and {funnel['sampled_long_only']} long-answer-only questions"
+        )
+        print(f"  dev examples scanned: {funnel['examples']}")
+        print(f"  long-answer agreement (>= 2 of 5 annotators): {funnel['long_answer_agreement']}")
+        print(f"  paragraph long answers: {funnel['paragraph_eligible']}")
+        print(f"  eligible: {funnel['eligible_short']} short answer, {funnel['eligible_long_only']} long-answer-only")
+        print(f"  id list: {out_path}")
         return 0
 
     if args.command == "run":
@@ -76,6 +134,12 @@ def main(argv: list[str] | None = None) -> int:
         from .run import run
 
         run(args.config, paths)
+        return 0
+
+    if args.command == "headroom":
+        from .routing import load_headroom_config, run_headroom
+
+        run_headroom(load_headroom_config(args.config), paths)
         return 0
 
     return 2  # pragma: no cover

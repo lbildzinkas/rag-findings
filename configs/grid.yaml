@@ -4,7 +4,7 @@ dataset:
   splits: [dev, test]
 # the production line (hybrid BM25 + vector, fused by reciprocal rank
 # fusion, then reranked over the fused top 30) first, then its ablations
-pipelines: [production, hybrid, vector, bm25]
+pipelines: [hybrid-rerank, hybrid, vector, bm25]
 embedders: [bge-small, nomic]
 rrf_k: 60
 rerank_depth: 30
