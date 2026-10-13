@@ -1,0 +1,10 @@
+# dataset downloads and derived run outputs never enter git
+data/
+runs/
+
+# python
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.ruff_cache/
