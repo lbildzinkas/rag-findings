@@ -1,4 +1,4 @@
-"""Result tables R2, R3, R4, R2w and R6, rendered from a grid run's
+"""Result tables R2, R3, R4, R2w, R5 and R6, rendered from a grid run's
 per-question results (runs/<dataset>/<run_name>/*.parquet).
 
 Every number is a mean over the included questions, summed with
@@ -14,9 +14,16 @@ same config over the same data regenerates them byte-identically.
   difference between types (context minus precise); collection search.
   Mixed questions are counted but left out of the contrast.
 - R4: fixed-k hit@k and recall@k, for comparison with the literature.
+- R5 (runs with embedders): pipeline x embedder x chunking at each
+  budget, the production line first and the ablations after, with each
+  chunking's truncation share under the embedder and how often packing
+  reached the production line's unreranked tail; collection search.
 - R6: NQ short-answer span recall per chunking and budget (Natural
   Questions runs only), the same packing scored against the
   short-answer spans of precise questions that have one.
+
+R2, R3, R4, R2w and R6 hold one block per pipeline and embedder, in R5's
+order; a BM25-only run has a single block and no block headings.
 
 Pooled runs keep each dataset's n visible: the Questions section breaks
 the query-type counts down per dataset, and means run over all the
@@ -29,7 +36,9 @@ production-view cell gives the share of questions where it did, and "†"
 marks the cells where that share is at least half, i.e. where the cap
 rather than the budget limits the retrieved text. A cell can show a small
 share without "†": a document's last window is shorter than the chunk
-size, so N chunks can leave room for one more.
+size, so N chunks can leave room for one more. "§" marks production-line
+cells where packing used the unreranked tail for at least one question,
+and "‡" a chunking some of whose chunks exceed the embedder's input limit.
 """
 
 from __future__ import annotations
@@ -41,12 +50,24 @@ from pathlib import Path
 
 import pyarrow.parquet as pq
 
-from .config import GridConfig, config_yaml
+from .config import PIPELINES, PRODUCTION_LINE, GridConfig, config_yaml
+from .models import EMBEDDERS, RERANKER
 from .query_type import CONTEXT, MIXED, PRECISE, QUERY_TYPES
 
 NA = "n/a"
 CAP_MARK = "†"
 CAP_MARK_SHARE = 0.5
+TAIL_MARK = "§"
+TRUNCATION_MARK = "‡"
+
+Block = tuple[str, str | None]  # (pipeline, embedder); BM25 has no embedder
+
+_PIPELINE_TITLES = {
+    PRODUCTION_LINE: "Production line: hybrid, then the reranker over the fused top {depth}",
+    "hybrid": "Ablation: hybrid (BM25 + vector, reciprocal rank fusion), no reranker",
+    "vector": "Ablation: vector search only",
+    "bm25": "Ablation: BM25 only",
+}
 
 
 @dataclass
@@ -56,6 +77,7 @@ class _Cell:
     precision: list[float] = field(default_factory=list)
     short_recall: list[float] = field(default_factory=list)
     cap_bound: list[bool] = field(default_factory=list)
+    used_tail: list[bool] = field(default_factory=list)
     short_cap_bound: list[bool] = field(default_factory=list)
     recall_by_type: dict[str, list[float]] = field(default_factory=lambda: defaultdict(list))
 
@@ -68,12 +90,27 @@ def _fmt(value: float) -> str:
     return f"{value:.4f}"
 
 
+def _share(values: list[bool]) -> float:
+    return _mean([1.0 if v else 0.0 for v in values])
+
+
+def blocks(cfg: GridConfig) -> list[Block]:
+    """The pipeline x embedder blocks of a run, the production line first."""
+    out: list[Block] = []
+    for pipeline in PIPELINES:
+        if pipeline in cfg.pipelines:
+            out += [(pipeline, None)] if pipeline == "bm25" else [(pipeline, e) for e in cfg.embedders]
+    return out
+
+
 def _cells(results: dict[str, list]) -> dict[tuple, _Cell]:
-    """Cells keyed by (scope, chunking, view, top_n, budget), aggregated
+    """Cells keyed by (pipeline, embedder, scope, chunking, view, top_n, budget), aggregated
     over every dataset in the run: pooled tables are the means over all
     loaded questions together."""
     cells: dict[tuple, _Cell] = defaultdict(_Cell)
     rows = zip(
+        results["pipeline"],
+        results["embedder"],
         results["scope"],
         results["chunking"],
         results["view"],
@@ -84,24 +121,53 @@ def _cells(results: dict[str, list]) -> dict[tuple, _Cell]:
         results["precision"],
         results["short_recall"],
         results["cap_bound"],
+        results["used_tail"],
         results["query_type"],
         strict=True,
     )
-    for scope, chunking, view, top_n, budget, scored, recall, precision, short_recall, cap_bound, qtype in rows:
-        cell = cells[(scope, chunking, view, top_n, budget)]
+    for (
+        pipeline,
+        embedder,
+        scope,
+        chunking,
+        view,
+        top_n,
+        budget,
+        scored,
+        recall,
+        precision,
+        short,
+        cap,
+        tail,
+        qtype,
+    ) in rows:
+        cell = cells[(pipeline, embedder, scope, chunking, view, top_n, budget)]
         if not scored:
             cell.scored = False
             continue
         cell.recall.append(recall)
         cell.precision.append(precision)
-        if short_recall is not None:
-            cell.short_recall.append(short_recall)
-            if cap_bound is not None:
-                cell.short_cap_bound.append(cap_bound)
+        if short is not None:
+            cell.short_recall.append(short)
+            if cap is not None:
+                cell.short_cap_bound.append(cap)
         cell.recall_by_type[qtype].append(recall)
-        if cap_bound is not None:
-            cell.cap_bound.append(cap_bound)
+        if cap is not None:
+            cell.cap_bound.append(cap)
+        if tail is not None:
+            cell.used_tail.append(tail)
     return cells
+
+
+def _truncation(results: dict[str, list]) -> dict[tuple[str, str], float]:
+    """(chunking, embedder) -> share of the chunking's chunks over the embedder's input limit."""
+    out: dict[tuple[str, str], float] = {}
+    for chunking, embedder, share in zip(
+        results["chunking"], results["embedder"], results["truncated_share"], strict=True
+    ):
+        if embedder is not None and share is not None:
+            out[(chunking, embedder)] = share
+    return out
 
 
 def _question_counts(questions: dict[str, list]) -> dict:
@@ -115,8 +181,29 @@ def _question_counts(questions: dict[str, list]) -> dict:
     return counts
 
 
-def _header(title: str, cfg: GridConfig, cfg_hash: str, dataset_hashes: dict[str, str], questions: dict[str, list]):
-    lines = [title, "", f"Config hash: `{cfg_hash}`", "", "## Config", "", "```yaml", config_yaml(cfg), "```", ""]
+def _header(
+    title: str,
+    cfg: GridConfig,
+    cfg_hash: str,
+    dataset_hashes: dict[str, str],
+    questions: dict[str, list],
+    sample: int | None = None,
+):
+    lines = [title, "", f"Config hash: `{cfg_hash}`", ""]
+    if sample is not None:
+        lines += [
+            f"Development run on a seeded sample of {sample} documents (seed {cfg.seed}), not the full dataset.",
+            "",
+        ]
+    lines += ["## Config", "", "```yaml", config_yaml(cfg), "```", ""]
+    if cfg.embedders:
+        lines += ["## Models", "", "| role | name | model | revision | input limit |", "|---|---|---|---|---|"]
+        for name in cfg.embedders:
+            spec = EMBEDDERS[name]
+            lines.append(f"| embedder | {name} | {spec.model_id} | `{spec.revision}` | {spec.max_tokens} tokens |")
+        if PRODUCTION_LINE in cfg.pipelines:
+            lines.append(f"| reranker | {RERANKER.name} | {RERANKER.model_id} | `{RERANKER.revision}` | {NA} |")
+        lines.append("")
     lines += ["## Dataset", "", "| split | sha256 |", "|---|---|"]
     lines += [f"| {split} | `{dataset_hashes[split]}` |" for split in sorted(dataset_hashes)]
     counts = _question_counts(questions)
@@ -135,53 +222,103 @@ def _header(title: str, cfg: GridConfig, cfg_hash: str, dataset_hashes: dict[str
     return lines
 
 
-def _metric(cell: _Cell, values: list[float], capped: bool, bound: list[bool] | None = None) -> str:
+def _metric(
+    cell: _Cell, values: list[float], capped: bool, bound: list[bool] | None = None, tail_mark: bool = True
+) -> str:
     if not cell.scored:
         return NA
     share = _cap_share(cell.cap_bound if bound is None else bound)
     mark = CAP_MARK if capped and share >= CAP_MARK_SHARE else ""
+    if tail_mark and any(cell.used_tail):
+        mark += TAIL_MARK
     return _fmt(_mean(values)) + mark
 
 
 def _cap_share(bound: list[bool]) -> float:
-    return _mean([1.0 if b else 0.0 for b in bound])
+    return _share(bound)
 
 
 def _cap_cell(cell: _Cell, bound: list[bool] | None = None) -> str:
     return _fmt(_cap_share(cell.cap_bound if bound is None else bound)) if cell.scored else NA
 
 
-def _r2(cfg: GridConfig, cells: dict[tuple, _Cell], scope: str, header: list[str]) -> str:
-    lines = list(header)
-    lines += [
-        f"## Production view (top-N cap {cfg.top_n}) and fair view (no cap)",
-        "",
-        "| chunking | budget | production recall | production precision | fair recall | fair precision | cap binds |",
-        "|---|---|---|---|---|---|---|",
-    ]
-    for spec in cfg.chunkings:
-        for budget in cfg.budgets:
-            prod = cells[(scope, spec.name, "production", cfg.top_n, budget)]
-            fair = cells[(scope, spec.name, "fair", None, budget)]
-            lines.append(
-                f"| {spec.name} | {budget} | {_metric(prod, prod.recall, True)} | "
-                f"{_metric(prod, prod.precision, True)} | {_metric(fair, fair.recall, False)} | "
-                f"{_metric(fair, fair.precision, False)} | {_cap_cell(prod)} |"
-            )
-    lines += [
-        "",
-        f"## Side table: production view, top-N cap {cfg.side_top_n}",
-        "",
-        "| chunking | budget | recall | precision | cap binds |",
-        "|---|---|---|---|---|",
-    ]
-    for spec in cfg.chunkings:
-        for budget in cfg.budgets:
-            side = cells[(scope, spec.name, "production", cfg.side_top_n, budget)]
-            lines.append(
-                f"| {spec.name} | {budget} | {_metric(side, side.recall, True)} | "
-                f"{_metric(side, side.precision, True)} | {_cap_cell(side)} |"
-            )
+def _block_title(cfg: GridConfig, block: Block) -> str:
+    pipeline, embedder = block
+    title = _PIPELINE_TITLES[pipeline].format(depth=cfg.rerank_depth)
+    return f"{title}, {embedder}" if embedder else title
+
+
+def _truncation_note(cfg: GridConfig, embedder: str, truncation: dict[tuple[str, str], float]) -> str:
+    limit = EMBEDDERS[embedder].max_tokens
+    over = [f"{spec.name} {_fmt(share)}" for spec in cfg.chunkings if (share := truncation[(spec.name, embedder)]) > 0]
+    if not over:
+        return f"No chunk exceeds {embedder}'s {limit}-token input."
+    return f"Share of chunks longer than {embedder}'s {limit}-token input, embedded truncated: {', '.join(over)}."
+
+
+def _blocked(cfg: GridConfig, truncation: dict[tuple[str, str], float], render) -> list[str]:
+    """Each block's lines in order; with several blocks, each under its own
+    heading (and its sections one level down)."""
+    run_blocks = blocks(cfg)
+    multi = len(run_blocks) > 1
+    lines: list[str] = []
+    for i, block in enumerate(run_blocks):
+        if i:
+            lines.append("")
+        if multi:
+            lines += [f"## {_block_title(cfg, block)}", ""]
+            if block[1] is not None:
+                lines += [_truncation_note(cfg, block[1], truncation), ""]
+        lines += render(block, "###" if multi else "##")
+    return lines
+
+
+def _notes(cfg: GridConfig) -> list[str]:
+    notes: list[str] = []
+    if PRODUCTION_LINE in cfg.pipelines:
+        notes.append(
+            f"{TAIL_MARK}: production line only; for at least one question, packing went past the reranked top "
+            f"{cfg.rerank_depth} into the unreranked tail, which continues in fused (hybrid) order."
+        )
+    return notes
+
+
+def _r2(
+    cfg: GridConfig, cells: dict[tuple, _Cell], scope: str, header: list[str], truncation: dict[tuple[str, str], float]
+) -> str:
+    def render(block: Block, h: str) -> list[str]:
+        lines = [
+            f"{h} Production view (top-N cap {cfg.top_n}) and fair view (no cap)",
+            "",
+            "| chunking | budget | production recall | production precision | fair recall | fair precision | cap binds |",
+            "|---|---|---|---|---|---|---|",
+        ]
+        for spec in cfg.chunkings:
+            for budget in cfg.budgets:
+                prod = cells[(*block, scope, spec.name, "production", cfg.top_n, budget)]
+                fair = cells[(*block, scope, spec.name, "fair", None, budget)]
+                lines.append(
+                    f"| {spec.name} | {budget} | {_metric(prod, prod.recall, True)} | "
+                    f"{_metric(prod, prod.precision, True)} | {_metric(fair, fair.recall, False)} | "
+                    f"{_metric(fair, fair.precision, False)} | {_cap_cell(prod)} |"
+                )
+        lines += [
+            "",
+            f"{h} Side table: production view, top-N cap {cfg.side_top_n}",
+            "",
+            "| chunking | budget | recall | precision | cap binds |",
+            "|---|---|---|---|---|",
+        ]
+        for spec in cfg.chunkings:
+            for budget in cfg.budgets:
+                side = cells[(*block, scope, spec.name, "production", cfg.side_top_n, budget)]
+                lines.append(
+                    f"| {spec.name} | {budget} | {_metric(side, side.recall, True)} | "
+                    f"{_metric(side, side.precision, True)} | {_cap_cell(side)} |"
+                )
+        return lines
+
+    lines = list(header) + _blocked(cfg, truncation, render)
     lines += [
         "",
         f"{NA}: a fixed chunking whose chunk is bigger than the budget is not scored at that budget.",
@@ -189,6 +326,7 @@ def _r2(cfg: GridConfig, cells: dict[tuple, _Cell], scope: str, header: list[str
             "`cap binds`: share of questions where the top-N cap stopped packing while a further ranked chunk would "
             f"still have fit the budget; {CAP_MARK}: the cap binds for at least half of the questions."
         ),
+        *_notes(cfg),
         "",
     ]
     return "\n".join(lines)
@@ -202,22 +340,25 @@ def _type_cells(cell: _Cell) -> tuple[str, str, str]:
     return _fmt(precise), _fmt(context), f"{context - precise:+.4f}"
 
 
-def _r3(cfg: GridConfig, cells: dict[tuple, _Cell], header: list[str]) -> str:
-    lines = list(header)
-    lines += [
-        f"## Retrieval recall by query type, collection search (production view: top-N cap {cfg.top_n})",
-        "",
-        (
-            "| chunking | budget | production precise | production context | production context - precise "
-            "| fair precise | fair context | fair context - precise |"
-        ),
-        "|---|---|---|---|---|---|---|---|",
-    ]
-    for spec in cfg.chunkings:
-        for budget in cfg.budgets:
-            prod = _type_cells(cells[("collection", spec.name, "production", cfg.top_n, budget)])
-            fair = _type_cells(cells[("collection", spec.name, "fair", None, budget)])
-            lines.append(f"| {spec.name} | {budget} | " + " | ".join(prod + fair) + " |")
+def _r3(cfg: GridConfig, cells: dict[tuple, _Cell], header: list[str], truncation: dict[tuple[str, str], float]) -> str:
+    def render(block: Block, h: str) -> list[str]:
+        lines = [
+            f"{h} Retrieval recall by query type, collection search (production view: top-N cap {cfg.top_n})",
+            "",
+            (
+                "| chunking | budget | production precise | production context | production context - precise "
+                "| fair precise | fair context | fair context - precise |"
+            ),
+            "|---|---|---|---|---|---|---|---|",
+        ]
+        for spec in cfg.chunkings:
+            for budget in cfg.budgets:
+                prod = _type_cells(cells[(*block, "collection", spec.name, "production", cfg.top_n, budget)])
+                fair = _type_cells(cells[(*block, "collection", spec.name, "fair", None, budget)])
+                lines.append(f"| {spec.name} | {budget} | " + " | ".join(prod + fair) + " |")
+        return lines
+
+    lines = list(header) + _blocked(cfg, truncation, render)
     lines += [
         "",
         (
@@ -232,27 +373,39 @@ def _r3(cfg: GridConfig, cells: dict[tuple, _Cell], header: list[str]) -> str:
     return "\n".join(lines)
 
 
-def _r4(cfg: GridConfig, fixed_k: dict[str, list], header: list[str]) -> str:
-    hits: dict[tuple[str, int], list[float]] = defaultdict(list)
-    recalls: dict[tuple[str, int], list[float]] = defaultdict(list)
-    for chunking, scope, k, hit, recall in zip(
-        fixed_k["chunking"], fixed_k["scope"], fixed_k["k"], fixed_k["hit"], fixed_k["recall"], strict=True
+def _r4(cfg: GridConfig, fixed_k: dict[str, list], header: list[str], truncation: dict[tuple[str, str], float]) -> str:
+    hits: dict[tuple, list[float]] = defaultdict(list)
+    recalls: dict[tuple, list[float]] = defaultdict(list)
+    for pipeline, embedder, chunking, scope, k, hit, recall in zip(
+        fixed_k["pipeline"],
+        fixed_k["embedder"],
+        fixed_k["chunking"],
+        fixed_k["scope"],
+        fixed_k["k"],
+        fixed_k["hit"],
+        fixed_k["recall"],
+        strict=True,
     ):
         if scope != "collection":
             continue
-        hits[(chunking, k)].append(1.0 if hit else 0.0)
-        recalls[(chunking, k)].append(recall)
+        hits[(pipeline, embedder, chunking, k)].append(1.0 if hit else 0.0)
+        recalls[(pipeline, embedder, chunking, k)].append(recall)
     ks = cfg.fixed_k
-    lines = list(header)
-    lines += [
-        "## Fixed-k retrieval, collection search (for comparison with the literature only)",
-        "",
-        "| chunking | " + " | ".join(f"hit@{k}" for k in ks) + " | " + " | ".join(f"recall@{k}" for k in ks) + " |",
-        "|---|" + "---|" * (2 * len(ks)),
-    ]
-    for spec in cfg.chunkings:
-        cols = [_fmt(_mean(hits[(spec.name, k)])) for k in ks] + [_fmt(_mean(recalls[(spec.name, k)])) for k in ks]
-        lines.append(f"| {spec.name} | " + " | ".join(cols) + " |")
+
+    def render(block: Block, h: str) -> list[str]:
+        lines = [
+            f"{h} Fixed-k retrieval, collection search (for comparison with the literature only)",
+            "",
+            "| chunking | " + " | ".join(f"hit@{k}" for k in ks) + " | " + " | ".join(f"recall@{k}" for k in ks) + " |",
+            "|---|" + "---|" * (2 * len(ks)),
+        ]
+        for spec in cfg.chunkings:
+            cols = [_fmt(_mean(hits[(*block, spec.name, k)])) for k in ks]
+            cols += [_fmt(_mean(recalls[(*block, spec.name, k)])) for k in ks]
+            lines.append(f"| {spec.name} | " + " | ".join(cols) + " |")
+        return lines
+
+    lines = list(header) + _blocked(cfg, truncation, render)
     lines += [
         "",
         (
@@ -265,27 +418,98 @@ def _r4(cfg: GridConfig, fixed_k: dict[str, list], header: list[str]) -> str:
     return "\n".join(lines)
 
 
-def _r6(cfg: GridConfig, cells: dict[tuple, _Cell], header: list[str], n_short: int) -> str:
+def _r5(cfg: GridConfig, cells: dict[tuple, _Cell], header: list[str], truncation: dict[tuple[str, str], float]) -> str:
+    unscored = f"{NA}: chunk > budget"
     lines = list(header)
     lines += [
-        f"## Short-answer span recall, collection search, n = {n_short} precise questions with a short-answer span",
+        "## Retrieval recall and precision by pipeline, embedder and chunking, collection search",
         "",
         (
-            f"The same packing as R2 (production view: top-N cap {cfg.top_n}; fair view: no cap) scored against "
-            "the short-answer spans instead of the long-answer paragraph."
+            f"Production view: top-N cap {cfg.top_n}; fair view: no cap. The production line comes first, then its "
+            "ablations. Every cell is filled or n/a with its reason."
         ),
         "",
-        "| chunking | budget | production short recall | fair short recall | cap binds |",
-        "|---|---|---|---|---|",
     ]
-    for spec in cfg.chunkings:
-        for budget in cfg.budgets:
-            prod = cells[("collection", spec.name, "production", cfg.top_n, budget)]
-            fair = cells[("collection", spec.name, "fair", None, budget)]
-            lines.append(
-                f"| {spec.name} | {budget} | {_metric(prod, prod.short_recall, True, prod.short_cap_bound)} | "
-                f"{_metric(fair, fair.short_recall, False)} | {_cap_cell(prod, prod.short_cap_bound)} |"
-            )
+    for budget in cfg.budgets:
+        lines += [
+            f"### Budget {budget} tokens",
+            "",
+            (
+                "| pipeline | embedder | chunking | production recall | production precision | fair recall "
+                "| fair precision | truncated chunks | tail used, production view | tail used, fair view |"
+            ),
+            "|---|---|---|---|---|---|---|---|---|---|",
+        ]
+        for pipeline, embedder in blocks(cfg):
+            for spec in cfg.chunkings:
+                prod = cells[(pipeline, embedder, "collection", spec.name, "production", cfg.top_n, budget)]
+                fair = cells[(pipeline, embedder, "collection", spec.name, "fair", None, budget)]
+                if embedder is None:
+                    truncated = f"{NA}: no embedder"
+                else:
+                    share = truncation[(spec.name, embedder)]
+                    truncated = _fmt(share) + (f" {TRUNCATION_MARK}" if share > 0 else "")
+                metrics = [
+                    _metric(prod, prod.recall, True, tail_mark=False) if prod.scored else unscored,
+                    _metric(prod, prod.precision, True, tail_mark=False) if prod.scored else unscored,
+                    _fmt(_mean(fair.recall)) if fair.scored else unscored,
+                    _fmt(_mean(fair.precision)) if fair.scored else unscored,
+                ]
+                if pipeline != PRODUCTION_LINE:
+                    tails = [f"{NA}: no reranker"] * 2
+                else:
+                    tails = [_fmt(_share(c.used_tail)) if c.scored else unscored for c in (prod, fair)]
+                row = [pipeline, embedder or "none", spec.name, *metrics, truncated, *tails]
+                lines.append("| " + " | ".join(row) + " |")
+        lines.append("")
+    lines += [
+        f"`{unscored}`: a fixed chunking whose chunk is bigger than the budget is not scored at that budget.",
+        f"`{NA}: no embedder`: BM25 reads no embedder, so it has one row per chunking and nothing to truncate.",
+        f"`{NA}: no reranker`: only the production line reranks, so only it has an unreranked tail.",
+        (
+            "`truncated chunks`: share of the chunking's chunks longer than the embedder's input limit (in its own "
+            f"tokens, task prefix included), which it embeds truncated; {TRUNCATION_MARK} marks a share above zero."
+        ),
+        (
+            f"`tail used`: share of questions whose packing went past the reranked top {cfg.rerank_depth} into the "
+            "unreranked tail (fused order)."
+        ),
+        f"{CAP_MARK}: the top-N cap binds for at least half of the questions (see R2).",
+        "",
+    ]
+    return "\n".join(lines)
+
+
+def _r6(
+    cfg: GridConfig,
+    cells: dict[tuple, _Cell],
+    header: list[str],
+    n_short: int,
+    truncation: dict[tuple[str, str], float],
+) -> str:
+    def render(block: Block, h: str) -> list[str]:
+        lines = [
+            f"{h} Short-answer span recall, collection search, n = {n_short} precise questions with a short-answer span",
+            "",
+            (
+                f"The same packing as R2 (production view: top-N cap {cfg.top_n}; fair view: no cap) scored against "
+                "the short-answer spans instead of the long-answer paragraph."
+            ),
+            "",
+            "| chunking | budget | production short recall | fair short recall | cap binds |",
+            "|---|---|---|---|---|",
+        ]
+        for spec in cfg.chunkings:
+            for budget in cfg.budgets:
+                prod = cells[(*block, "collection", spec.name, "production", cfg.top_n, budget)]
+                fair = cells[(*block, "collection", spec.name, "fair", None, budget)]
+                lines.append(
+                    f"| {spec.name} | {budget} | {_metric(prod, prod.short_recall, True, prod.short_cap_bound)} | "
+                    f"{_metric(fair, fair.short_recall, False)} | {_cap_cell(prod, prod.short_cap_bound)} |"
+                )
+        return lines
+
+    lines = list(header) + _blocked(cfg, truncation, render)
     lines += [
         "",
         (
@@ -293,54 +517,48 @@ def _r6(cfg: GridConfig, cells: dict[tuple, _Cell], header: list[str], n_short: 
             "these means; they count in R2 and R3."
         ),
         f"{NA}: a fixed chunking whose chunk is bigger than the budget is not scored at that budget.",
+        *_notes(cfg),
         "",
     ]
     return "\n".join(lines)
 
 
 def write_tables(
-    cfg: GridConfig, cfg_hash: str, dataset_hashes: dict[str, str], run_dir: Path, results_dir: Path
+    cfg: GridConfig,
+    cfg_hash: str,
+    dataset_hashes: dict[str, str],
+    run_dir: Path,
+    results_dir: Path,
+    sample: int | None = None,
 ) -> tuple[Path, ...]:
-    """Render R2, R3, R4, R2w (and R6 for a Natural Questions run) from
-    the run's Parquet files; returns their paths."""
+    """Render R2, R3, R4, R2w, R5 (with embedders) and R6 (for a Natural
+    Questions run) from the run's Parquet files; returns their paths."""
     questions = pq.read_table(run_dir / "questions.parquet").to_pydict()
-    cells = _cells(pq.read_table(run_dir / "results.parquet").to_pydict())
+    results = pq.read_table(run_dir / "results.parquet").to_pydict()
+    cells = _cells(results)
+    truncation = _truncation(results)
     fixed_k = pq.read_table(run_dir / "fixed_k.parquet").to_pydict()
+
+    def header(title: str) -> list[str]:
+        return _header(f"# {title}", cfg, cfg_hash, dataset_hashes, questions, sample)
 
     base = f"{cfg.dataset} {cfg.run_name}, {cfg.pipeline}"
     out_dir = results_dir / cfg.dataset
     out_dir.mkdir(parents=True, exist_ok=True)
     tables = {
-        "r2": _r2(
-            cfg,
-            cells,
-            "collection",
-            _header(f"# R2 - {base}: chunking x budget, collection search", cfg, cfg_hash, dataset_hashes, questions),
-        ),
-        "r3": _r3(
-            cfg,
-            cells,
-            _header(f"# R3 - {base}: chunk size x query type", cfg, cfg_hash, dataset_hashes, questions),
-        ),
-        "r4": _r4(cfg, fixed_k, _header(f"# R4 - {base}: fixed-k", cfg, cfg_hash, dataset_hashes, questions)),
+        "r2": _r2(cfg, cells, "collection", header(f"R2 - {base}: chunking x budget, collection search"), truncation),
+        "r3": _r3(cfg, cells, header(f"R3 - {base}: chunk size x query type"), truncation),
+        "r4": _r4(cfg, fixed_k, header(f"R4 - {base}: fixed-k"), truncation),
     }
     if "document" in cfg.scopes:
         tables["r2w"] = _r2(
-            cfg,
-            cells,
-            "document",
-            _header(
-                f"# R2w - {base}: chunking x budget, within the document", cfg, cfg_hash, dataset_hashes, questions
-            ),
+            cfg, cells, "document", header(f"R2w - {base}: chunking x budget, within the document"), truncation
         )
     if cfg.dataset == "nq":
         n_short = sum(1 for flag in questions["short_answer"] if flag)
-        tables["r6"] = _r6(
-            cfg,
-            cells,
-            _header(f"# R6 - {base}: short-answer span recall", cfg, cfg_hash, dataset_hashes, questions),
-            n_short,
-        )
+        tables["r6"] = _r6(cfg, cells, header(f"R6 - {base}: short-answer span recall"), n_short, truncation)
+    if cfg.embedders:
+        tables["r5"] = _r5(cfg, cells, header(f"R5 - {base}: pipeline x embedder x chunking"), truncation)
     paths: list[Path] = []
     for name, text in tables.items():
         path = out_dir / f"{name}-{cfg.run_name}.md"

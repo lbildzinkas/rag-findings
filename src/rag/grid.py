@@ -1,49 +1,59 @@
 """`rag run <grid config>`: every chunking at every token budget, in both
-views and both search scopes, under one retrieval pipeline.
+views and both search scopes, under every configured retrieval pipeline
+(BM25 alone, or the production line and its ablations per embedder).
 
-For each question, chunking and search scope, one ranked list is
-retrieved and packed at every budget three ways: the production view
-(top-N cap), the production view's side table (a smaller cap) and the
-fair view (no cap). A fixed chunking whose chunk is bigger than the budget
-is not scored at that budget. Retrieval sees only the question text,
-never its query type.
+For each question, chunking, search scope, pipeline and embedder, one
+ranked list is retrieved (see rag.pipelines) and packed at every budget
+three ways: the production view (top-N cap), the production view's side
+table (a smaller cap) and the fair view (no cap). A fixed chunking whose
+chunk is bigger than the budget is not scored at that budget. Retrieval
+sees only the question text, never its query type.
 
-Per-question results go to runs/<dataset>/<run_name>/ (git-ignored) as Parquet, in
-a stable columnar schema that later pipelines extend with more rows
-(`pipeline`, `embedder`) without changing the columns:
+Per-question results go to runs/<dataset>/<run_name>/ (git-ignored) as
+Parquet, one row per pipeline and embedder (`pipeline`, `embedder`):
 
 - questions.parquet: one row per question, with its query type and,
   for Natural Questions, whether it is a precise question with a
   short-answer span;
-- results.parquet: one row per question x chunking x scope x view x top-N
-  cap x budget, with retrieval recall and precision (null when not
-  scored), whether the top-N cap bound, and the short-answer span recall
-  for NQ precise questions (null elsewhere);
-- fixed_k.parquet: one row per question x chunking x scope x k, with
-  hit@k and recall@k (collection search only).
+- results.parquet: one row per question x pipeline x embedder x chunking
+  x scope x view x top-N cap x budget, with retrieval recall and
+  precision (null when not scored), whether the top-N cap bound, the
+  short-answer span recall for NQ precise questions (null elsewhere), the
+  share of the chunking's chunks longer than the embedder's input limit
+  (null without an embedder) and whether packing used the production
+  line's unreranked tail (null for pipelines without the reranker);
+- fixed_k.parquet: one row per question x pipeline x embedder x chunking
+  x scope x k, with hit@k and recall@k (collection search only).
 
-The result tables R2, R3, R4, R2w and - for a Natural Questions run -
-R6 are rendered from those files.
+The result tables R2, R3, R4, R2w, R5 (when there are embedders) and -
+for a Natural Questions run - R6 are rendered from those files. `sample`
+restricts the run to a seeded sample of documents, written to
+runs/<dataset>/<run_name>-sample<N>/ with its tables inside it, so the
+committed tables under results/ are never overwritten.
 """
 
 from __future__ import annotations
 
 import json
+import random
 import time
 from collections.abc import Sequence
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 
 import pyarrow as pa
 import pyarrow.parquet as pq
 
+from .cache import Cache
 from .chunking import Chunk, chunk_text, fixed_windows, section_aware, small_to_big_children, verify_tiling
-from .config import ChunkingSpec, GridConfig, config_hash
+from .config import PRODUCTION_LINE, ChunkingSpec, GridConfig, config_hash
 from .documents import Document
 from .labels import question_query_type
 from .metrics import score_fixed_k, score_question
+from .models import EMBEDDERS, RERANKER, Models, ModelSource
 from .packing import pack, pack_small_to_big
 from .paths import Paths
+from .pipelines import Ranking, Retriever
 from .qasper import Question
 from .query_type import PRECISE, QUERY_TYPES
 from .retrieval import BM25Index
@@ -51,7 +61,7 @@ from .run import dataset_split_hashes, excluded_counts, gold_token_sets, library
 from .tables import write_tables
 from .tokens import TokenText
 
-SCHEMA_VERSION = "2"
+SCHEMA_VERSION = "3"  # 2: short_recall; 3: truncated_share and used_tail
 
 QUESTIONS_SCHEMA = pa.schema(
     [
@@ -93,6 +103,8 @@ RESULTS_SCHEMA = pa.schema(
         ("kept_annotator", pa.int32()),
         ("cap_bound", pa.bool_()),  # null in the fair view
         ("short_recall", pa.float64()),  # NQ short-answer span recall, null elsewhere
+        ("truncated_share", pa.float64()),  # null without an embedder
+        ("used_tail", pa.bool_()),  # null without the reranker, or when not scored
     ]
 )
 
@@ -207,6 +219,7 @@ def _score_question(
     gold: list[tuple[int, ...]],
     short_gold: list[tuple[int, ...]],
     chunkings: list[_Chunking],
+    retriever: Retriever,
     results: _Columns,
     fixed_k: _Columns,
 ) -> None:
@@ -216,49 +229,78 @@ def _score_question(
         "question_id": question.question_id,
         "doc_id": question.doc_id,
         "query_type": qtype,
-        "pipeline": cfg.pipeline,
-        "embedder": None,
     }
+    rankings = retriever.rank(question, [(c.spec.name, c.index) for c in chunkings], cfg.scopes)
     for chunking in chunkings:
-        nominal = chunking.spec.fixed_size
         for scope in cfg.scopes:
-            doc_filter = question.doc_id if scope == "document" else None
-            ranked = [r.chunk for r in chunking.index.search(question.text, cfg.search_depth, doc_filter)]
-            cell = {**keys, "chunking": chunking.spec.name, "scope": scope}
-            if scope == "collection":
-                for s in score_fixed_k(
-                    gold,
-                    chunking.returned_units(ranked),
-                    chunking.doc_units(question.doc_id),
-                    question.doc_id,
-                    cfg.fixed_k,
-                ):
-                    fixed_k.add(**cell, k=s.k, hit=s.hit, recall=s.recall, relevant_units=s.relevant_units)
-            for budget in cfg.budgets:
-                if nominal is not None and nominal > budget:
-                    for view, top_n in _views(cfg):
-                        results.add(**cell, view=view, top_n=top_n, budget=budget, scored=False)
-                    continue
-                fair = chunking.packer(ranked, budget, None)
-                for view, top_n in _views(cfg):
-                    packed = fair if top_n is None else chunking.packer(ranked, budget, top_n)
-                    score = score_question(gold, packed, question.doc_id)
-                    short_recall = score_question(short_gold, packed, question.doc_id).recall if short_gold else None
-                    results.add(
-                        **cell,
-                        view=view,
-                        top_n=top_n,
-                        budget=budget,
-                        scored=True,
-                        recall=score.recall,
-                        precision=score.precision,
-                        short_recall=short_recall,
-                        retrieved_tokens=score.retrieved_tokens,
-                        gold_tokens=score.gold_tokens,
-                        n_chunks=len(packed),
-                        kept_annotator=score.annotator,
-                        cap_bound=None if top_n is None else len(fair) > len(packed),
-                    )
+            for ranking in rankings[(chunking.spec.name, scope)]:
+                truncated = retriever.truncated.get((chunking.spec.name, ranking.embedder or ""))
+                cell = {
+                    **keys,
+                    "pipeline": ranking.pipeline,
+                    "embedder": ranking.embedder,
+                    "chunking": chunking.spec.name,
+                    "scope": scope,
+                    "truncated_share": truncated,
+                }
+                _score_ranking(cfg, question, gold, short_gold, chunking, scope, ranking, cell, results, fixed_k)
+
+
+def _score_ranking(
+    cfg: GridConfig,
+    question: Question,
+    gold: list[tuple[int, ...]],
+    short_gold: list[tuple[int, ...]],
+    chunking: _Chunking,
+    scope: str,
+    ranking: Ranking,
+    cell: dict,
+    results: _Columns,
+    fixed_k: _Columns,
+) -> None:
+    """Score one ranked list at every budget and view. For the production
+    line, packing used the unreranked tail exactly when packing the whole
+    list returns more chunks than packing its reranked head alone (packing
+    is greedy in rank order, so both agree up to the end of the head)."""
+    nominal = chunking.spec.fixed_size
+    ranked = ranking.ranked
+    head = None if ranking.reranked is None else ranked[: ranking.reranked]
+    if scope == "collection":
+        for s in score_fixed_k(
+            gold,
+            chunking.returned_units(ranked),
+            chunking.doc_units(question.doc_id),
+            question.doc_id,
+            cfg.fixed_k,
+        ):
+            fixed_k.add(**cell, k=s.k, hit=s.hit, recall=s.recall, relevant_units=s.relevant_units)
+    for budget in cfg.budgets:
+        if nominal is not None and nominal > budget:
+            for view, top_n in _views(cfg):
+                results.add(**cell, view=view, top_n=top_n, budget=budget, scored=False)
+            continue
+        fair = chunking.packer(ranked, budget, None)
+        for view, top_n in _views(cfg):
+            packed = fair if top_n is None else chunking.packer(ranked, budget, top_n)
+            used_tail = None if head is None else len(packed) > len(chunking.packer(head, budget, top_n))
+            score = score_question(gold, packed, question.doc_id)
+            short_recall = score_question(short_gold, packed, question.doc_id).recall if short_gold else None
+            results.add(
+                **cell,
+                view=view,
+                top_n=top_n,
+                budget=budget,
+                scored=True,
+                recall=score.recall,
+                precision=score.precision,
+                short_recall=short_recall,
+                retrieved_tokens=score.retrieved_tokens,
+                gold_tokens=score.gold_tokens,
+                n_chunks=len(packed),
+                kept_annotator=score.annotator,
+                cap_bound=None if top_n is None else len(fair) > len(packed),
+                used_tail=used_tail,
+            )
 
 
 @dataclass(frozen=True)
@@ -271,80 +313,154 @@ class GridOutcome:
     tables: tuple[Path, ...]
 
 
-def run_grid(cfg: GridConfig, paths: Paths, encoding=None) -> GridOutcome:
+def sample_papers(splits: list, n: int, seed: int) -> list:
+    """Keep a seeded random sample of `n` documents (all of them when
+    fewer), with their questions and exclusions."""
+    if n <= 0:
+        raise ValueError(f"sample must be positive, got {n}")
+    doc_ids = sorted(doc.doc_id for split in splits for doc in split.documents)
+    kept = set(random.Random(seed).sample(doc_ids, min(n, len(doc_ids))))
+    return [
+        replace(
+            split,
+            documents=tuple(d for d in split.documents if d.doc_id in kept),
+            questions=tuple(q for q in split.questions if q.doc_id in kept),
+            excluded=tuple(e for e in split.excluded if e.doc_id in kept),
+        )
+        for split in splits
+    ]
+
+
+def _model_manifest(cfg: GridConfig) -> dict:
+    embedders = {
+        name: {
+            "model_id": EMBEDDERS[name].model_id,
+            "revision": EMBEDDERS[name].revision,
+            "max_input_tokens": EMBEDDERS[name].max_tokens,
+            "document_prefix": EMBEDDERS[name].document_prefix,
+            "query_prefix": EMBEDDERS[name].query_prefix,
+        }
+        for name in cfg.embedders
+    }
+    out: dict = {"embedders": embedders}
+    if PRODUCTION_LINE in cfg.pipelines:
+        out["reranker"] = {"model_id": RERANKER.model_id, "revision": RERANKER.revision}
+    return out
+
+
+def _model_versions() -> dict[str, str]:
+    import sentence_transformers
+    import torch
+    import transformers
+
+    return {
+        "sentence-transformers": sentence_transformers.__version__,
+        "torch": torch.__version__,
+        "transformers": transformers.__version__,
+    }
+
+
+def run_grid(
+    cfg: GridConfig,
+    paths: Paths,
+    encoding=None,
+    sample: int | None = None,
+    models: ModelSource | None = None,
+) -> GridOutcome:
     started = time.monotonic()
     cfg_hash = config_hash(cfg)
     splits, documents, spans_verified = load_datasets(paths, cfg.sources)
+    run_name = cfg.run_name
+    if sample is not None:
+        splits = sample_papers(splits, sample, cfg.seed)
+        documents = {doc.doc_id: doc for split in splits for doc in split.documents}
+        run_name = f"{cfg.run_name}-sample{sample}"
     tokenized = {doc_id: TokenText(documents[doc_id].text, encoding) for doc_id in sorted(documents)}
 
-    run_dir = paths.run_dir(cfg.run_name, cfg.dataset)
+    run_dir = paths.run_dir(run_name, cfg.dataset)
+    results_dir = paths.results if sample is None else run_dir / "results"
     run_dir.mkdir(parents=True, exist_ok=True)
+    cache = Cache(paths.cache / "rag-cache.sqlite")
+    retriever = Retriever(
+        cfg, documents, models if models is not None else Models(paths.data), cache, run_dir / "lance"
+    )
+    all_questions = [(split.dataset, question) for split in splits for question in split.questions]
+    retriever.embed_questions([question for _, question in all_questions])
     chunkings: list[_Chunking] = []
     chunk_counts: dict[str, int] = {}
     shared_characters: dict[str, int] = {}
     for spec in cfg.chunkings:
         chunking, shared = _build_chunking(spec, documents, tokenized, run_dir / "lance")
+        retriever.index_chunking(spec.name, [u for doc_id in sorted(documents) for u in chunking.units_by_doc[doc_id]])
         chunkings.append(chunking)
         chunk_counts[spec.name] = sum(len(units) for units in chunking.units_by_doc.values())
         shared_characters[spec.name] = shared
+    indexed = time.monotonic()
 
     questions = _Columns(QUESTIONS_SCHEMA)
     results = _Columns(RESULTS_SCHEMA)
     fixed_k = _Columns(FIXED_K_SCHEMA)
     query_types = {t: 0 for t in QUERY_TYPES}
     query_types_by_dataset: dict[str, dict[str, int]] = {}
-    for split in splits:
-        for question in split.questions:
-            passages = [len(annotator) for annotator in question.annotators]
-            qtype = question_query_type(question)
-            query_types[qtype] += 1
-            per_dataset = query_types_by_dataset.setdefault(split.dataset, {t: 0 for t in QUERY_TYPES})
-            per_dataset[qtype] += 1
-            short_scored = qtype == PRECISE and bool(question.short_annotators)
-            questions.add(
-                dataset=split.dataset,
-                split=question.split,
-                question_id=question.question_id,
-                doc_id=question.doc_id,
-                query_type=qtype,
-                annotators=len(passages),
-                passages=passages,
-                short_answer=short_scored or None,
-            )
-            gold = gold_token_sets(question, tokenized)
-            short_gold = (
-                [
-                    tuple(
-                        sorted(
-                            frozenset().union(
-                                *(
-                                    tokenized[question.doc_id].token_indices_overlapping(s.start, s.end)
-                                    for s in annotator
-                                )
-                            )
+    for done, (dataset, question) in enumerate(all_questions, start=1):
+        passages = [len(annotator) for annotator in question.annotators]
+        qtype = question_query_type(question)
+        query_types[qtype] += 1
+        per_dataset = query_types_by_dataset.setdefault(dataset, {t: 0 for t in QUERY_TYPES})
+        per_dataset[qtype] += 1
+        short_scored = qtype == PRECISE and bool(question.short_annotators)
+        questions.add(
+            dataset=dataset,
+            split=question.split,
+            question_id=question.question_id,
+            doc_id=question.doc_id,
+            query_type=qtype,
+            annotators=len(passages),
+            passages=passages,
+            short_answer=short_scored or None,
+        )
+        gold = gold_token_sets(question, tokenized)
+        short_gold = (
+            [
+                tuple(
+                    sorted(
+                        frozenset().union(
+                            *(tokenized[question.doc_id].token_indices_overlapping(s.start, s.end) for s in annotator)
                         )
                     )
-                    for annotator in question.short_annotators
-                ]
-                if short_scored
-                else []
+                )
+                for annotator in question.short_annotators
+            ]
+            if short_scored
+            else []
+        )
+        _score_question(cfg, question, dataset, qtype, gold, short_gold, chunkings, retriever, results, fixed_k)
+        if not cfg.bm25_only and (done % 50 == 0 or done == len(all_questions)):
+            elapsed = time.monotonic() - indexed
+            print(
+                f"  questions {done}/{len(all_questions)}, {elapsed / 60:.1f} min, "
+                f"~{elapsed / done * (len(all_questions) - done) / 60:.0f} min left, "
+                f"reranker pairs scored {retriever.stats.pairs_scored}",
+                flush=True,
             )
-            _score_question(cfg, question, split.dataset, qtype, gold, short_gold, chunkings, results, fixed_k)
+    cache.close()
+    retrieved = time.monotonic()
 
     questions.write(run_dir / "questions.parquet")
     results.write(run_dir / "results.parquet")
     fixed_k.write(run_dir / "fixed_k.parquet")
 
     dataset_hashes = dataset_split_hashes(splits)
-    tables = write_tables(cfg, cfg_hash, dataset_hashes, run_dir, paths.results)
+    tables = write_tables(cfg, cfg_hash, dataset_hashes, run_dir, results_dir, sample=sample)
     n_questions = sum(query_types.values())
     nq_split = next((split for split in splits if split.dataset == "nq"), None)
     manifest = {
         "config": cfg.as_dict(),
         "config_hash": cfg_hash,
         "schema_version": SCHEMA_VERSION,
+        "sample": None if sample is None else {"documents": len(documents), "requested": sample, "seed": cfg.seed},
         "datasets": dataset_hashes,
-        "versions": library_versions(),
+        "versions": library_versions() | ({} if cfg.bm25_only else _model_versions()),
         "counts": {
             "documents": len(documents),
             "chunks": chunk_counts,
@@ -368,13 +484,27 @@ def run_grid(cfg: GridConfig, paths: Paths, encoding=None) -> GridOutcome:
         },
         "duration_seconds": round(time.monotonic() - started, 3),
     }
+    if not cfg.bm25_only:
+        manifest["models"] = _model_manifest(cfg)
+        manifest["truncated_share"] = {
+            spec.name: {e: retriever.truncated[(spec.name, e)] for e in cfg.embedders} for spec in cfg.chunkings
+        }
+        manifest["reranker"] = retriever.stats.as_dict()
+        manifest["phase_seconds"] = {
+            "load_embed_and_index": round(indexed - started, 3),
+            "retrieve_rerank_and_score": round(retrieved - indexed, 3),
+            "write": round(time.monotonic() - retrieved, 3),
+        }
     (run_dir / "manifest.json").write_text(json.dumps(manifest, sort_keys=True, indent=2) + "\n", encoding="utf-8")
 
-    print(f"run {cfg.run_name}: {n_questions} questions x {len(chunkings)} chunkings x {len(cfg.budgets)} budgets")
+    print(f"run {run_name}: {n_questions} questions x {len(chunkings)} chunkings x {len(cfg.budgets)} budgets")
     print(f"  labelled spans verified: {spans_verified}")
     print("  query types: " + ", ".join(f"{t} {n}" for t, n in query_types.items()))
     for name, n in chunk_counts.items():
         print(f"  chunks indexed, {name}: {n} over {len(documents)} documents (tiling verified)")
+    if not cfg.bm25_only:
+        print(f"  reranker: {retriever.stats.as_dict()}")
+        print(f"  wall time: {manifest['duration_seconds'] / 60:.1f} min")
     print(f"  per-question results: {run_dir}")
     for path in tables:
         print(f"  result table: {path}")
