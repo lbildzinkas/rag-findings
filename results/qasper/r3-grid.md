@@ -1,6 +1,6 @@
 # R3 - qasper grid, production line and ablations: chunk size x query type
 
-Config hash: `46651182bfedaccb9c330b18a924d2d702dc741790be26d25893cab39e4f32a2`
+Config hash: `97bc8de66def0c97a34aaefe87bc535bd43e7b8f2f2320a696721ee5ab74df62`
 
 ## Config
 
@@ -50,7 +50,7 @@ fixed_k:
 - 10
 kind: grid
 pipelines:
-- production
+- hybrid-rerank
 - hybrid
 - vector
 - bm25

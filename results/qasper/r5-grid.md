@@ -1,6 +1,6 @@
 # R5 - qasper grid, production line and ablations: pipeline x embedder x chunking
 
-Config hash: `46651182bfedaccb9c330b18a924d2d702dc741790be26d25893cab39e4f32a2`
+Config hash: `97bc8de66def0c97a34aaefe87bc535bd43e7b8f2f2320a696721ee5ab74df62`
 
 ## Config
 
@@ -50,7 +50,7 @@ fixed_k:
 - 10
 kind: grid
 pipelines:
-- production
+- hybrid-rerank
 - hybrid
 - vector
 - bm25
@@ -98,20 +98,20 @@ Production view: top-N cap 8; fair view: no cap. The production line comes first
 
 | pipeline | embedder | chunking | production recall | production precision | fair recall | fair precision | truncated chunks | tail used, production view | tail used, fair view |
 |---|---|---|---|---|---|---|---|---|---|
-| production | bge-small | fixed-64 | 0.0526 | 0.0647 | 0.0526 | 0.0647 | 0.0000 | 0.0109 | 0.0109 |
-| production | bge-small | fixed-128 | 0.0416 | 0.0556 | 0.0416 | 0.0556 | 0.0000 | 0.0123 | 0.0123 |
-| production | bge-small | fixed-256 | n/a: chunk > budget | n/a: chunk > budget | n/a: chunk > budget | n/a: chunk > budget | 0.0000 | n/a: chunk > budget | n/a: chunk > budget |
-| production | bge-small | fixed-512 | n/a: chunk > budget | n/a: chunk > budget | n/a: chunk > budget | n/a: chunk > budget | 0.8856 ‡ | n/a: chunk > budget | n/a: chunk > budget |
-| production | bge-small | fixed-1024 | n/a: chunk > budget | n/a: chunk > budget | n/a: chunk > budget | n/a: chunk > budget | 0.9101 ‡ | n/a: chunk > budget | n/a: chunk > budget |
-| production | bge-small | section-aware | 0.0313 | 0.0284 | 0.0313 | 0.0284 | 0.0810 ‡ | 0.5849 | 0.5849 |
-| production | bge-small | small-to-big | 0.0708 | 0.0856 | 0.0708 | 0.0856 | 0.0000 | 0.2239 | 0.2249 |
-| production | nomic | fixed-64 | 0.0524 | 0.0630 | 0.0524 | 0.0630 | 0.0000 | 0.0091 | 0.0091 |
-| production | nomic | fixed-128 | 0.0439 | 0.0569 | 0.0439 | 0.0569 | 0.0000 | 0.0141 | 0.0141 |
-| production | nomic | fixed-256 | n/a: chunk > budget | n/a: chunk > budget | n/a: chunk > budget | n/a: chunk > budget | 0.0000 | n/a: chunk > budget | n/a: chunk > budget |
-| production | nomic | fixed-512 | n/a: chunk > budget | n/a: chunk > budget | n/a: chunk > budget | n/a: chunk > budget | 0.0000 | n/a: chunk > budget | n/a: chunk > budget |
-| production | nomic | fixed-1024 | n/a: chunk > budget | n/a: chunk > budget | n/a: chunk > budget | n/a: chunk > budget | 0.0000 | n/a: chunk > budget | n/a: chunk > budget |
-| production | nomic | section-aware | 0.0315 | 0.0292 | 0.0315 | 0.0292 | 0.0000 | 0.5403 | 0.5403 |
-| production | nomic | small-to-big | 0.0690 | 0.0839 | 0.0690 | 0.0839 | 0.0000 | 0.2358 | 0.2362 |
+| hybrid-rerank | bge-small | fixed-64 | 0.0526 | 0.0647 | 0.0526 | 0.0647 | 0.0000 | 0.0109 | 0.0109 |
+| hybrid-rerank | bge-small | fixed-128 | 0.0416 | 0.0556 | 0.0416 | 0.0556 | 0.0000 | 0.0123 | 0.0123 |
+| hybrid-rerank | bge-small | fixed-256 | n/a: chunk > budget | n/a: chunk > budget | n/a: chunk > budget | n/a: chunk > budget | 0.0000 | n/a: chunk > budget | n/a: chunk > budget |
+| hybrid-rerank | bge-small | fixed-512 | n/a: chunk > budget | n/a: chunk > budget | n/a: chunk > budget | n/a: chunk > budget | 0.8856 ‡ | n/a: chunk > budget | n/a: chunk > budget |
+| hybrid-rerank | bge-small | fixed-1024 | n/a: chunk > budget | n/a: chunk > budget | n/a: chunk > budget | n/a: chunk > budget | 0.9101 ‡ | n/a: chunk > budget | n/a: chunk > budget |
+| hybrid-rerank | bge-small | section-aware | 0.0313 | 0.0284 | 0.0313 | 0.0284 | 0.0810 ‡ | 0.5849 | 0.5849 |
+| hybrid-rerank | bge-small | small-to-big | 0.0708 | 0.0856 | 0.0708 | 0.0856 | 0.0000 | 0.2239 | 0.2249 |
+| hybrid-rerank | nomic | fixed-64 | 0.0524 | 0.0630 | 0.0524 | 0.0630 | 0.0000 | 0.0091 | 0.0091 |
+| hybrid-rerank | nomic | fixed-128 | 0.0439 | 0.0569 | 0.0439 | 0.0569 | 0.0000 | 0.0141 | 0.0141 |
+| hybrid-rerank | nomic | fixed-256 | n/a: chunk > budget | n/a: chunk > budget | n/a: chunk > budget | n/a: chunk > budget | 0.0000 | n/a: chunk > budget | n/a: chunk > budget |
+| hybrid-rerank | nomic | fixed-512 | n/a: chunk > budget | n/a: chunk > budget | n/a: chunk > budget | n/a: chunk > budget | 0.0000 | n/a: chunk > budget | n/a: chunk > budget |
+| hybrid-rerank | nomic | fixed-1024 | n/a: chunk > budget | n/a: chunk > budget | n/a: chunk > budget | n/a: chunk > budget | 0.0000 | n/a: chunk > budget | n/a: chunk > budget |
+| hybrid-rerank | nomic | section-aware | 0.0315 | 0.0292 | 0.0315 | 0.0292 | 0.0000 | 0.5403 | 0.5403 |
+| hybrid-rerank | nomic | small-to-big | 0.0690 | 0.0839 | 0.0690 | 0.0839 | 0.0000 | 0.2358 | 0.2362 |
 | hybrid | bge-small | fixed-64 | 0.0453 | 0.0525 | 0.0453 | 0.0525 | 0.0000 | n/a: no reranker | n/a: no reranker |
 | hybrid | bge-small | fixed-128 | 0.0442 | 0.0516 | 0.0442 | 0.0516 | 0.0000 | n/a: no reranker | n/a: no reranker |
 | hybrid | bge-small | fixed-256 | n/a: chunk > budget | n/a: chunk > budget | n/a: chunk > budget | n/a: chunk > budget | 0.0000 | n/a: no reranker | n/a: no reranker |
@@ -152,20 +152,20 @@ Production view: top-N cap 8; fair view: no cap. The production line comes first
 
 | pipeline | embedder | chunking | production recall | production precision | fair recall | fair precision | truncated chunks | tail used, production view | tail used, fair view |
 |---|---|---|---|---|---|---|---|---|---|
-| production | bge-small | fixed-64 | 0.0863 | 0.0521 | 0.0863 | 0.0521 | 0.0000 | 0.0255 | 0.0255 |
-| production | bge-small | fixed-128 | 0.0935 | 0.0610 | 0.0935 | 0.0610 | 0.0000 | 0.0278 | 0.0278 |
-| production | bge-small | fixed-256 | 0.0632 | 0.0427 | 0.0632 | 0.0427 | 0.0000 | 0.0237 | 0.0241 |
-| production | bge-small | fixed-512 | n/a: chunk > budget | n/a: chunk > budget | n/a: chunk > budget | n/a: chunk > budget | 0.8856 ‡ | n/a: chunk > budget | n/a: chunk > budget |
-| production | bge-small | fixed-1024 | n/a: chunk > budget | n/a: chunk > budget | n/a: chunk > budget | n/a: chunk > budget | 0.9101 ‡ | n/a: chunk > budget | n/a: chunk > budget |
-| production | bge-small | section-aware | 0.0619 | 0.0357 | 0.0619 | 0.0357 | 0.0810 ‡ | 0.6004 | 0.6004 |
-| production | bge-small | small-to-big | 0.1080 | 0.0646 | 0.1080 | 0.0645 | 0.0000 | 0.4706 | 0.4807 |
-| production | nomic | fixed-64 | 0.0879 | 0.0536 | 0.0879 | 0.0536 | 0.0000 | 0.0209 | 0.0209 |
-| production | nomic | fixed-128 | 0.0936 | 0.0603 | 0.0936 | 0.0603 | 0.0000 | 0.0296 | 0.0296 |
-| production | nomic | fixed-256 | 0.0620 | 0.0425 | 0.0620 | 0.0425 | 0.0000 | 0.0232 | 0.0232 |
-| production | nomic | fixed-512 | n/a: chunk > budget | n/a: chunk > budget | n/a: chunk > budget | n/a: chunk > budget | 0.0000 | n/a: chunk > budget | n/a: chunk > budget |
-| production | nomic | fixed-1024 | n/a: chunk > budget | n/a: chunk > budget | n/a: chunk > budget | n/a: chunk > budget | 0.0000 | n/a: chunk > budget | n/a: chunk > budget |
-| production | nomic | section-aware | 0.0634 | 0.0365 | 0.0634 | 0.0365 | 0.0000 | 0.5844 | 0.5844 |
-| production | nomic | small-to-big | 0.1066 | 0.0643 | 0.1066 | 0.0643 | 0.0000 | 0.4984 | 0.4989 |
+| hybrid-rerank | bge-small | fixed-64 | 0.0863 | 0.0521 | 0.0863 | 0.0521 | 0.0000 | 0.0255 | 0.0255 |
+| hybrid-rerank | bge-small | fixed-128 | 0.0935 | 0.0610 | 0.0935 | 0.0610 | 0.0000 | 0.0278 | 0.0278 |
+| hybrid-rerank | bge-small | fixed-256 | 0.0632 | 0.0427 | 0.0632 | 0.0427 | 0.0000 | 0.0237 | 0.0241 |
+| hybrid-rerank | bge-small | fixed-512 | n/a: chunk > budget | n/a: chunk > budget | n/a: chunk > budget | n/a: chunk > budget | 0.8856 ‡ | n/a: chunk > budget | n/a: chunk > budget |
+| hybrid-rerank | bge-small | fixed-1024 | n/a: chunk > budget | n/a: chunk > budget | n/a: chunk > budget | n/a: chunk > budget | 0.9101 ‡ | n/a: chunk > budget | n/a: chunk > budget |
+| hybrid-rerank | bge-small | section-aware | 0.0619 | 0.0357 | 0.0619 | 0.0357 | 0.0810 ‡ | 0.6004 | 0.6004 |
+| hybrid-rerank | bge-small | small-to-big | 0.1080 | 0.0646 | 0.1080 | 0.0645 | 0.0000 | 0.4706 | 0.4807 |
+| hybrid-rerank | nomic | fixed-64 | 0.0879 | 0.0536 | 0.0879 | 0.0536 | 0.0000 | 0.0209 | 0.0209 |
+| hybrid-rerank | nomic | fixed-128 | 0.0936 | 0.0603 | 0.0936 | 0.0603 | 0.0000 | 0.0296 | 0.0296 |
+| hybrid-rerank | nomic | fixed-256 | 0.0620 | 0.0425 | 0.0620 | 0.0425 | 0.0000 | 0.0232 | 0.0232 |
+| hybrid-rerank | nomic | fixed-512 | n/a: chunk > budget | n/a: chunk > budget | n/a: chunk > budget | n/a: chunk > budget | 0.0000 | n/a: chunk > budget | n/a: chunk > budget |
+| hybrid-rerank | nomic | fixed-1024 | n/a: chunk > budget | n/a: chunk > budget | n/a: chunk > budget | n/a: chunk > budget | 0.0000 | n/a: chunk > budget | n/a: chunk > budget |
+| hybrid-rerank | nomic | section-aware | 0.0634 | 0.0365 | 0.0634 | 0.0365 | 0.0000 | 0.5844 | 0.5844 |
+| hybrid-rerank | nomic | small-to-big | 0.1066 | 0.0643 | 0.1066 | 0.0643 | 0.0000 | 0.4984 | 0.4989 |
 | hybrid | bge-small | fixed-64 | 0.0708 | 0.0422 | 0.0708 | 0.0422 | 0.0000 | n/a: no reranker | n/a: no reranker |
 | hybrid | bge-small | fixed-128 | 0.0713 | 0.0455 | 0.0713 | 0.0455 | 0.0000 | n/a: no reranker | n/a: no reranker |
 | hybrid | bge-small | fixed-256 | 0.0585 | 0.0399 | 0.0585 | 0.0399 | 0.0000 | n/a: no reranker | n/a: no reranker |
@@ -206,20 +206,20 @@ Production view: top-N cap 8; fair view: no cap. The production line comes first
 
 | pipeline | embedder | chunking | production recall | production precision | fair recall | fair precision | truncated chunks | tail used, production view | tail used, fair view |
 |---|---|---|---|---|---|---|---|---|---|
-| production | bge-small | fixed-64 | 0.1245 | 0.0383 | 0.1245 | 0.0382 | 0.0000 | 0.0000 | 0.0646 |
-| production | bge-small | fixed-128 | 0.1410 | 0.0466 | 0.1410 | 0.0466 | 0.0000 | 0.0578 | 0.0605 |
-| production | bge-small | fixed-256 | 0.1271 | 0.0445 | 0.1271 | 0.0445 | 0.0000 | 0.0496 | 0.0496 |
-| production | bge-small | fixed-512 | 0.0970 | 0.0348 | 0.0970 | 0.0348 | 0.8856 ‡ | 0.0519 | 0.0533 |
-| production | bge-small | fixed-1024 | n/a: chunk > budget | n/a: chunk > budget | n/a: chunk > budget | n/a: chunk > budget | 0.9101 ‡ | n/a: chunk > budget | n/a: chunk > budget |
-| production | bge-small | section-aware | 0.1559 | 0.0563 | 0.1559 | 0.0563 | 0.0810 ‡ | 0.6218 | 0.6254 |
-| production | bge-small | small-to-big | 0.1664 | 0.0572 | 0.1664 | 0.0572 | 0.0000 | 0.6340 | 0.6636 |
-| production | nomic | fixed-64 | 0.1241 | 0.0379 | 0.1241 | 0.0379 | 0.0000 | 0.0000 | 0.0460 |
-| production | nomic | fixed-128 | 0.1411 | 0.0467 | 0.1411 | 0.0467 | 0.0000 | 0.0528 | 0.0528 |
-| production | nomic | fixed-256 | 0.1249 | 0.0443 | 0.1249 | 0.0443 | 0.0000 | 0.0510 | 0.0510 |
-| production | nomic | fixed-512 | 0.1006 | 0.0361 | 0.1006 | 0.0361 | 0.0000 | 0.0624 | 0.0624 |
-| production | nomic | fixed-1024 | n/a: chunk > budget | n/a: chunk > budget | n/a: chunk > budget | n/a: chunk > budget | 0.0000 | n/a: chunk > budget | n/a: chunk > budget |
-| production | nomic | section-aware | 0.1570 | 0.0555 | 0.1570 | 0.0555 | 0.0000 | 0.5576 | 0.5626 |
-| production | nomic | small-to-big | 0.1640 | 0.0568 | 0.1640 | 0.0568 | 0.0000 | 0.6891 | 0.6946 |
+| hybrid-rerank | bge-small | fixed-64 | 0.1245 | 0.0383 | 0.1245 | 0.0382 | 0.0000 | 0.0000 | 0.0646 |
+| hybrid-rerank | bge-small | fixed-128 | 0.1410 | 0.0466 | 0.1410 | 0.0466 | 0.0000 | 0.0578 | 0.0605 |
+| hybrid-rerank | bge-small | fixed-256 | 0.1271 | 0.0445 | 0.1271 | 0.0445 | 0.0000 | 0.0496 | 0.0496 |
+| hybrid-rerank | bge-small | fixed-512 | 0.0970 | 0.0348 | 0.0970 | 0.0348 | 0.8856 ‡ | 0.0519 | 0.0533 |
+| hybrid-rerank | bge-small | fixed-1024 | n/a: chunk > budget | n/a: chunk > budget | n/a: chunk > budget | n/a: chunk > budget | 0.9101 ‡ | n/a: chunk > budget | n/a: chunk > budget |
+| hybrid-rerank | bge-small | section-aware | 0.1559 | 0.0563 | 0.1559 | 0.0563 | 0.0810 ‡ | 0.6218 | 0.6254 |
+| hybrid-rerank | bge-small | small-to-big | 0.1664 | 0.0572 | 0.1664 | 0.0572 | 0.0000 | 0.6340 | 0.6636 |
+| hybrid-rerank | nomic | fixed-64 | 0.1241 | 0.0379 | 0.1241 | 0.0379 | 0.0000 | 0.0000 | 0.0460 |
+| hybrid-rerank | nomic | fixed-128 | 0.1411 | 0.0467 | 0.1411 | 0.0467 | 0.0000 | 0.0528 | 0.0528 |
+| hybrid-rerank | nomic | fixed-256 | 0.1249 | 0.0443 | 0.1249 | 0.0443 | 0.0000 | 0.0510 | 0.0510 |
+| hybrid-rerank | nomic | fixed-512 | 0.1006 | 0.0361 | 0.1006 | 0.0361 | 0.0000 | 0.0624 | 0.0624 |
+| hybrid-rerank | nomic | fixed-1024 | n/a: chunk > budget | n/a: chunk > budget | n/a: chunk > budget | n/a: chunk > budget | 0.0000 | n/a: chunk > budget | n/a: chunk > budget |
+| hybrid-rerank | nomic | section-aware | 0.1570 | 0.0555 | 0.1570 | 0.0555 | 0.0000 | 0.5576 | 0.5626 |
+| hybrid-rerank | nomic | small-to-big | 0.1640 | 0.0568 | 0.1640 | 0.0568 | 0.0000 | 0.6891 | 0.6946 |
 | hybrid | bge-small | fixed-64 | 0.1028 | 0.0317 | 0.1029 | 0.0315 | 0.0000 | n/a: no reranker | n/a: no reranker |
 | hybrid | bge-small | fixed-128 | 0.1136 | 0.0369 | 0.1136 | 0.0369 | 0.0000 | n/a: no reranker | n/a: no reranker |
 | hybrid | bge-small | fixed-256 | 0.0989 | 0.0340 | 0.0989 | 0.0340 | 0.0000 | n/a: no reranker | n/a: no reranker |
@@ -260,20 +260,20 @@ Production view: top-N cap 8; fair view: no cap. The production line comes first
 
 | pipeline | embedder | chunking | production recall | production precision | fair recall | fair precision | truncated chunks | tail used, production view | tail used, fair view |
 |---|---|---|---|---|---|---|---|---|---|
-| production | bge-small | fixed-64 | 0.1245† | 0.0383† | 0.1617 | 0.0255 | 0.0000 | 0.0000 | 0.1475 |
-| production | bge-small | fixed-128 | 0.1958 | 0.0332 | 0.1958 | 0.0329 | 0.0000 | 0.0000 | 0.1270 |
-| production | bge-small | fixed-256 | 0.2058 | 0.0357 | 0.2058 | 0.0357 | 0.0000 | 0.1193 | 0.1252 |
-| production | bge-small | fixed-512 | 0.1858 | 0.0348 | 0.1858 | 0.0348 | 0.8856 ‡ | 0.1179 | 0.1197 |
-| production | bge-small | fixed-1024 | 0.1521 | 0.0286 | 0.1521 | 0.0286 | 0.9101 ‡ | 0.0751 | 0.0760 |
-| production | bge-small | section-aware | 0.2458 | 0.0466 | 0.2460 | 0.0465 | 0.0810 ‡ | 0.5321 | 0.6076 |
-| production | bge-small | small-to-big | 0.2333 | 0.0431 | 0.2333 | 0.0429 | 0.0000 | 0.5503 | 0.6987 |
-| production | nomic | fixed-64 | 0.1241† | 0.0379† | 0.1634 | 0.0255 | 0.0000 | 0.0000 | 0.1020 |
-| production | nomic | fixed-128 | 0.1985 | 0.0338 | 0.1985 | 0.0336 | 0.0000 | 0.0000 | 0.0979 |
-| production | nomic | fixed-256 | 0.2019 | 0.0352 | 0.2019 | 0.0352 | 0.0000 | 0.1070 | 0.1070 |
-| production | nomic | fixed-512 | 0.1890 | 0.0356 | 0.1890 | 0.0356 | 0.0000 | 0.1302 | 0.1311 |
-| production | nomic | fixed-1024 | 0.1509 | 0.0284 | 0.1509 | 0.0284 | 0.0000 | 0.0833 | 0.0833 |
-| production | nomic | section-aware | 0.2471 | 0.0467 | 0.2480 | 0.0467 | 0.0000 | 0.5039 | 0.5831 |
-| production | nomic | small-to-big | 0.2377 | 0.0444 | 0.2377 | 0.0444 | 0.0000 | 0.6545 | 0.7183 |
+| hybrid-rerank | bge-small | fixed-64 | 0.1245† | 0.0383† | 0.1617 | 0.0255 | 0.0000 | 0.0000 | 0.1475 |
+| hybrid-rerank | bge-small | fixed-128 | 0.1958 | 0.0332 | 0.1958 | 0.0329 | 0.0000 | 0.0000 | 0.1270 |
+| hybrid-rerank | bge-small | fixed-256 | 0.2058 | 0.0357 | 0.2058 | 0.0357 | 0.0000 | 0.1193 | 0.1252 |
+| hybrid-rerank | bge-small | fixed-512 | 0.1858 | 0.0348 | 0.1858 | 0.0348 | 0.8856 ‡ | 0.1179 | 0.1197 |
+| hybrid-rerank | bge-small | fixed-1024 | 0.1521 | 0.0286 | 0.1521 | 0.0286 | 0.9101 ‡ | 0.0751 | 0.0760 |
+| hybrid-rerank | bge-small | section-aware | 0.2458 | 0.0466 | 0.2460 | 0.0465 | 0.0810 ‡ | 0.5321 | 0.6076 |
+| hybrid-rerank | bge-small | small-to-big | 0.2333 | 0.0431 | 0.2333 | 0.0429 | 0.0000 | 0.5503 | 0.6987 |
+| hybrid-rerank | nomic | fixed-64 | 0.1241† | 0.0379† | 0.1634 | 0.0255 | 0.0000 | 0.0000 | 0.1020 |
+| hybrid-rerank | nomic | fixed-128 | 0.1985 | 0.0338 | 0.1985 | 0.0336 | 0.0000 | 0.0000 | 0.0979 |
+| hybrid-rerank | nomic | fixed-256 | 0.2019 | 0.0352 | 0.2019 | 0.0352 | 0.0000 | 0.1070 | 0.1070 |
+| hybrid-rerank | nomic | fixed-512 | 0.1890 | 0.0356 | 0.1890 | 0.0356 | 0.0000 | 0.1302 | 0.1311 |
+| hybrid-rerank | nomic | fixed-1024 | 0.1509 | 0.0284 | 0.1509 | 0.0284 | 0.0000 | 0.0833 | 0.0833 |
+| hybrid-rerank | nomic | section-aware | 0.2471 | 0.0467 | 0.2480 | 0.0467 | 0.0000 | 0.5039 | 0.5831 |
+| hybrid-rerank | nomic | small-to-big | 0.2377 | 0.0444 | 0.2377 | 0.0444 | 0.0000 | 0.6545 | 0.7183 |
 | hybrid | bge-small | fixed-64 | 0.1028† | 0.0317† | 0.1438 | 0.0225 | 0.0000 | n/a: no reranker | n/a: no reranker |
 | hybrid | bge-small | fixed-128 | 0.1598 | 0.0271 | 0.1600 | 0.0267 | 0.0000 | n/a: no reranker | n/a: no reranker |
 | hybrid | bge-small | fixed-256 | 0.1497 | 0.0271 | 0.1497 | 0.0271 | 0.0000 | n/a: no reranker | n/a: no reranker |
@@ -314,20 +314,20 @@ Production view: top-N cap 8; fair view: no cap. The production line comes first
 
 | pipeline | embedder | chunking | production recall | production precision | fair recall | fair precision | truncated chunks | tail used, production view | tail used, fair view |
 |---|---|---|---|---|---|---|---|---|---|
-| production | bge-small | fixed-64 | 0.1245† | 0.0383† | 0.1886 | 0.0150 | 0.0000 | 0.0000 | 1.0000 |
-| production | bge-small | fixed-128 | 0.1958† | 0.0332† | 0.2373 | 0.0200 | 0.0000 | 0.0000 | 0.2777 |
-| production | bge-small | fixed-256 | 0.2617 | 0.0244 | 0.2618 | 0.0240 | 0.0000 | 0.0000 | 0.2467 |
-| production | bge-small | fixed-512 | 0.2555 | 0.0255 | 0.2558 | 0.0255 | 0.8856 ‡ | 0.2344 | 0.2481 |
-| production | bge-small | fixed-1024 | 0.2411 | 0.0240 | 0.2411 | 0.0240 | 0.9101 ‡ | 0.1834 | 0.1853 |
-| production | bge-small | section-aware | 0.3031† | 0.0320† | 0.3074 | 0.0296 | 0.0810 ‡ | 0.1375 | 0.6454 |
-| production | bge-small | small-to-big | 0.2893† | 0.0299† | 0.2925 | 0.0282 | 0.0000 | 0.0901 | 0.7037 |
-| production | nomic | fixed-64 | 0.1241† | 0.0379† | 0.1910 | 0.0151 | 0.0000 | 0.0000 | 1.0000 |
-| production | nomic | fixed-128 | 0.1985† | 0.0338† | 0.2434 | 0.0209 | 0.0000 | 0.0000 | 0.1903 |
-| production | nomic | fixed-256 | 0.2599 | 0.0243 | 0.2599 | 0.0240 | 0.0000 | 0.0000 | 0.2089 |
-| production | nomic | fixed-512 | 0.2596 | 0.0256 | 0.2596 | 0.0256 | 0.0000 | 0.2472 | 0.2576 |
-| production | nomic | fixed-1024 | 0.2430 | 0.0241 | 0.2430 | 0.0241 | 0.0000 | 0.2012 | 0.2021 |
-| production | nomic | section-aware | 0.3033† | 0.0320† | 0.3076 | 0.0297 | 0.0000 | 0.1202 | 0.5976 |
-| production | nomic | small-to-big | 0.2933† | 0.0304† | 0.2975 | 0.0289 | 0.0000 | 0.1620 | 0.7142 |
+| hybrid-rerank | bge-small | fixed-64 | 0.1245† | 0.0383† | 0.1886 | 0.0150 | 0.0000 | 0.0000 | 1.0000 |
+| hybrid-rerank | bge-small | fixed-128 | 0.1958† | 0.0332† | 0.2373 | 0.0200 | 0.0000 | 0.0000 | 0.2777 |
+| hybrid-rerank | bge-small | fixed-256 | 0.2617 | 0.0244 | 0.2618 | 0.0240 | 0.0000 | 0.0000 | 0.2467 |
+| hybrid-rerank | bge-small | fixed-512 | 0.2555 | 0.0255 | 0.2558 | 0.0255 | 0.8856 ‡ | 0.2344 | 0.2481 |
+| hybrid-rerank | bge-small | fixed-1024 | 0.2411 | 0.0240 | 0.2411 | 0.0240 | 0.9101 ‡ | 0.1834 | 0.1853 |
+| hybrid-rerank | bge-small | section-aware | 0.3031† | 0.0320† | 0.3074 | 0.0296 | 0.0810 ‡ | 0.1375 | 0.6454 |
+| hybrid-rerank | bge-small | small-to-big | 0.2893† | 0.0299† | 0.2925 | 0.0282 | 0.0000 | 0.0901 | 0.7037 |
+| hybrid-rerank | nomic | fixed-64 | 0.1241† | 0.0379† | 0.1910 | 0.0151 | 0.0000 | 0.0000 | 1.0000 |
+| hybrid-rerank | nomic | fixed-128 | 0.1985† | 0.0338† | 0.2434 | 0.0209 | 0.0000 | 0.0000 | 0.1903 |
+| hybrid-rerank | nomic | fixed-256 | 0.2599 | 0.0243 | 0.2599 | 0.0240 | 0.0000 | 0.0000 | 0.2089 |
+| hybrid-rerank | nomic | fixed-512 | 0.2596 | 0.0256 | 0.2596 | 0.0256 | 0.0000 | 0.2472 | 0.2576 |
+| hybrid-rerank | nomic | fixed-1024 | 0.2430 | 0.0241 | 0.2430 | 0.0241 | 0.0000 | 0.2012 | 0.2021 |
+| hybrid-rerank | nomic | section-aware | 0.3033† | 0.0320† | 0.3076 | 0.0297 | 0.0000 | 0.1202 | 0.5976 |
+| hybrid-rerank | nomic | small-to-big | 0.2933† | 0.0304† | 0.2975 | 0.0289 | 0.0000 | 0.1620 | 0.7142 |
 | hybrid | bge-small | fixed-64 | 0.1028† | 0.0317† | 0.1886 | 0.0150 | 0.0000 | n/a: no reranker | n/a: no reranker |
 | hybrid | bge-small | fixed-128 | 0.1598† | 0.0271† | 0.2105 | 0.0178 | 0.0000 | n/a: no reranker | n/a: no reranker |
 | hybrid | bge-small | fixed-256 | 0.2101 | 0.0197 | 0.2107 | 0.0194 | 0.0000 | n/a: no reranker | n/a: no reranker |
@@ -368,20 +368,20 @@ Production view: top-N cap 8; fair view: no cap. The production line comes first
 
 | pipeline | embedder | chunking | production recall | production precision | fair recall | fair precision | truncated chunks | tail used, production view | tail used, fair view |
 |---|---|---|---|---|---|---|---|---|---|
-| production | bge-small | fixed-64 | 0.1245† | 0.0383† | 0.2311 | 0.0093 | 0.0000 | 0.0000 | 1.0000 |
-| production | bge-small | fixed-128 | 0.1958† | 0.0332† | 0.2656 | 0.0114 | 0.0000 | 0.0000 | 1.0000 |
-| production | bge-small | fixed-256 | 0.2617† | 0.0244† | 0.3009 | 0.0141 | 0.0000 | 0.0000 | 0.4461 |
-| production | bge-small | fixed-512 | 0.3211 | 0.0170 | 0.3220 | 0.0164 | 0.8856 ‡ | 0.0000 | 0.4574 |
-| production | bge-small | fixed-1024 | 0.3132 | 0.0165 | 0.3132 | 0.0164 | 0.9101 ‡ | 0.3550 | 0.3655 |
-| production | bge-small | section-aware | 0.3119† | 0.0298† | 0.3445 | 0.0169 | 0.0810 ‡ | 0.0000 | 0.7656 |
-| production | bge-small | small-to-big | 0.3010† | 0.0269† | 0.3324 | 0.0163 | 0.0000 | 0.0000 | 0.7715 |
-| production | nomic | fixed-64 | 0.1241† | 0.0379† | 0.2387 | 0.0096 | 0.0000 | 0.0000 | 1.0000 |
-| production | nomic | fixed-128 | 0.1985† | 0.0338† | 0.2703 | 0.0116 | 0.0000 | 0.0000 | 1.0000 |
-| production | nomic | fixed-256 | 0.2599† | 0.0243† | 0.3000 | 0.0143 | 0.0000 | 0.0000 | 0.3901 |
-| production | nomic | fixed-512 | 0.3202† | 0.0171† | 0.3209 | 0.0165 | 0.0000 | 0.0000 | 0.4779 |
-| production | nomic | fixed-1024 | 0.3143 | 0.0166 | 0.3143 | 0.0166 | 0.0000 | 0.3842 | 0.4110 |
-| production | nomic | section-aware | 0.3101† | 0.0300† | 0.3443 | 0.0170 | 0.0000 | 0.0000 | 0.7237 |
-| production | nomic | small-to-big | 0.3057† | 0.0273† | 0.3404 | 0.0166 | 0.0000 | 0.0000 | 0.7806 |
+| hybrid-rerank | bge-small | fixed-64 | 0.1245† | 0.0383† | 0.2311 | 0.0093 | 0.0000 | 0.0000 | 1.0000 |
+| hybrid-rerank | bge-small | fixed-128 | 0.1958† | 0.0332† | 0.2656 | 0.0114 | 0.0000 | 0.0000 | 1.0000 |
+| hybrid-rerank | bge-small | fixed-256 | 0.2617† | 0.0244† | 0.3009 | 0.0141 | 0.0000 | 0.0000 | 0.4461 |
+| hybrid-rerank | bge-small | fixed-512 | 0.3211 | 0.0170 | 0.3220 | 0.0164 | 0.8856 ‡ | 0.0000 | 0.4574 |
+| hybrid-rerank | bge-small | fixed-1024 | 0.3132 | 0.0165 | 0.3132 | 0.0164 | 0.9101 ‡ | 0.3550 | 0.3655 |
+| hybrid-rerank | bge-small | section-aware | 0.3119† | 0.0298† | 0.3445 | 0.0169 | 0.0810 ‡ | 0.0000 | 0.7656 |
+| hybrid-rerank | bge-small | small-to-big | 0.3010† | 0.0269† | 0.3324 | 0.0163 | 0.0000 | 0.0000 | 0.7715 |
+| hybrid-rerank | nomic | fixed-64 | 0.1241† | 0.0379† | 0.2387 | 0.0096 | 0.0000 | 0.0000 | 1.0000 |
+| hybrid-rerank | nomic | fixed-128 | 0.1985† | 0.0338† | 0.2703 | 0.0116 | 0.0000 | 0.0000 | 1.0000 |
+| hybrid-rerank | nomic | fixed-256 | 0.2599† | 0.0243† | 0.3000 | 0.0143 | 0.0000 | 0.0000 | 0.3901 |
+| hybrid-rerank | nomic | fixed-512 | 0.3202† | 0.0171† | 0.3209 | 0.0165 | 0.0000 | 0.0000 | 0.4779 |
+| hybrid-rerank | nomic | fixed-1024 | 0.3143 | 0.0166 | 0.3143 | 0.0166 | 0.0000 | 0.3842 | 0.4110 |
+| hybrid-rerank | nomic | section-aware | 0.3101† | 0.0300† | 0.3443 | 0.0170 | 0.0000 | 0.0000 | 0.7237 |
+| hybrid-rerank | nomic | small-to-big | 0.3057† | 0.0273† | 0.3404 | 0.0166 | 0.0000 | 0.0000 | 0.7806 |
 | hybrid | bge-small | fixed-64 | 0.1028† | 0.0317† | 0.2311 | 0.0093 | 0.0000 | n/a: no reranker | n/a: no reranker |
 | hybrid | bge-small | fixed-128 | 0.1598† | 0.0271† | 0.2656 | 0.0114 | 0.0000 | n/a: no reranker | n/a: no reranker |
 | hybrid | bge-small | fixed-256 | 0.2101† | 0.0197† | 0.2685 | 0.0125 | 0.0000 | n/a: no reranker | n/a: no reranker |
@@ -422,20 +422,20 @@ Production view: top-N cap 8; fair view: no cap. The production line comes first
 
 | pipeline | embedder | chunking | production recall | production precision | fair recall | fair precision | truncated chunks | tail used, production view | tail used, fair view |
 |---|---|---|---|---|---|---|---|---|---|
-| production | bge-small | fixed-64 | 0.1245† | 0.0383† | 0.2767 | 0.0056 | 0.0000 | 0.0000 | 1.0000 |
-| production | bge-small | fixed-128 | 0.1958† | 0.0332† | 0.3168 | 0.0069 | 0.0000 | 0.0000 | 1.0000 |
-| production | bge-small | fixed-256 | 0.2617† | 0.0244† | 0.3266 | 0.0078 | 0.0000 | 0.0000 | 1.0000 |
-| production | bge-small | fixed-512 | 0.3211† | 0.0170† | 0.3520 | 0.0091 | 0.8856 ‡ | 0.0000 | 0.6932 |
-| production | bge-small | fixed-1024 | 0.3591† | 0.0104† | 0.3614 | 0.0098 | 0.9101 ‡ | 0.0000 | 0.6136 |
-| production | bge-small | section-aware | 0.3119† | 0.0298† | 0.3694 | 0.0090 | 0.0810 ‡ | 0.0000 | 0.9654 |
-| production | bge-small | small-to-big | 0.3010† | 0.0269† | 0.3639 | 0.0090 | 0.0000 | 0.0000 | 0.9759 |
-| production | nomic | fixed-64 | 0.1241† | 0.0379† | 0.2862 | 0.0058 | 0.0000 | 0.0000 | 1.0000 |
-| production | nomic | fixed-128 | 0.1985† | 0.0338† | 0.3286 | 0.0072 | 0.0000 | 0.0000 | 1.0000 |
-| production | nomic | fixed-256 | 0.2599† | 0.0243† | 0.3283 | 0.0080 | 0.0000 | 0.0000 | 1.0000 |
-| production | nomic | fixed-512 | 0.3202† | 0.0171† | 0.3598 | 0.0094 | 0.0000 | 0.0000 | 0.6850 |
-| production | nomic | fixed-1024 | 0.3692† | 0.0108† | 0.3708 | 0.0101 | 0.0000 | 0.0000 | 0.6618 |
-| production | nomic | section-aware | 0.3101† | 0.0300† | 0.3695 | 0.0091 | 0.0000 | 0.0000 | 0.9672 |
-| production | nomic | small-to-big | 0.3057† | 0.0273† | 0.3696 | 0.0091 | 0.0000 | 0.0000 | 0.9577 |
+| hybrid-rerank | bge-small | fixed-64 | 0.1245† | 0.0383† | 0.2767 | 0.0056 | 0.0000 | 0.0000 | 1.0000 |
+| hybrid-rerank | bge-small | fixed-128 | 0.1958† | 0.0332† | 0.3168 | 0.0069 | 0.0000 | 0.0000 | 1.0000 |
+| hybrid-rerank | bge-small | fixed-256 | 0.2617† | 0.0244† | 0.3266 | 0.0078 | 0.0000 | 0.0000 | 1.0000 |
+| hybrid-rerank | bge-small | fixed-512 | 0.3211† | 0.0170† | 0.3520 | 0.0091 | 0.8856 ‡ | 0.0000 | 0.6932 |
+| hybrid-rerank | bge-small | fixed-1024 | 0.3591† | 0.0104† | 0.3614 | 0.0098 | 0.9101 ‡ | 0.0000 | 0.6136 |
+| hybrid-rerank | bge-small | section-aware | 0.3119† | 0.0298† | 0.3694 | 0.0090 | 0.0810 ‡ | 0.0000 | 0.9654 |
+| hybrid-rerank | bge-small | small-to-big | 0.3010† | 0.0269† | 0.3639 | 0.0090 | 0.0000 | 0.0000 | 0.9759 |
+| hybrid-rerank | nomic | fixed-64 | 0.1241† | 0.0379† | 0.2862 | 0.0058 | 0.0000 | 0.0000 | 1.0000 |
+| hybrid-rerank | nomic | fixed-128 | 0.1985† | 0.0338† | 0.3286 | 0.0072 | 0.0000 | 0.0000 | 1.0000 |
+| hybrid-rerank | nomic | fixed-256 | 0.2599† | 0.0243† | 0.3283 | 0.0080 | 0.0000 | 0.0000 | 1.0000 |
+| hybrid-rerank | nomic | fixed-512 | 0.3202† | 0.0171† | 0.3598 | 0.0094 | 0.0000 | 0.0000 | 0.6850 |
+| hybrid-rerank | nomic | fixed-1024 | 0.3692† | 0.0108† | 0.3708 | 0.0101 | 0.0000 | 0.0000 | 0.6618 |
+| hybrid-rerank | nomic | section-aware | 0.3101† | 0.0300† | 0.3695 | 0.0091 | 0.0000 | 0.0000 | 0.9672 |
+| hybrid-rerank | nomic | small-to-big | 0.3057† | 0.0273† | 0.3696 | 0.0091 | 0.0000 | 0.0000 | 0.9577 |
 | hybrid | bge-small | fixed-64 | 0.1028† | 0.0317† | 0.2767 | 0.0056 | 0.0000 | n/a: no reranker | n/a: no reranker |
 | hybrid | bge-small | fixed-128 | 0.1598† | 0.0271† | 0.3168 | 0.0069 | 0.0000 | n/a: no reranker | n/a: no reranker |
 | hybrid | bge-small | fixed-256 | 0.2101† | 0.0197† | 0.3266 | 0.0078 | 0.0000 | n/a: no reranker | n/a: no reranker |
