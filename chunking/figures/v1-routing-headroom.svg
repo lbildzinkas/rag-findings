@@ -1,0 +1,63 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="760" height="402.0" viewBox="0 0 760 402.0" role="img" font-family="system-ui, -apple-system, 'Segoe UI', sans-serif">
+<title>Routing headroom over the best single chunking</title>
+<desc>Oracle router recall minus best single chunking recall per budget, both embedders, with CIs. Values from results/routing/r7-headroom.md.</desc>
+<rect width="760" height="402.0" fill="#fcfcfb"/>
+<text x="16.0" y="28.0" font-size="16" text-anchor="start" fill="#0b0b0b" font-weight="600">Routing headroom over the best single chunking</text>
+<text x="16.0" y="48.0" font-size="12" text-anchor="start" fill="#52514e">Production line, production view, QASPER + NQ pooled; 95% CI at 1024 tokens, Holm-adjusted elsewhere</text>
+<line x1="16.0" y1="68.0" x2="32.0" y2="68.0" stroke="#2a78d6" stroke-width="2"/>
+<circle cx="24.0" cy="68.0" r="4" fill="#2a78d6" stroke="#fcfcfb" stroke-width="2"/>
+<text x="38.0" y="72.0" font-size="12" text-anchor="start" fill="#0b0b0b">bge-small</text>
+<line x1="121.0" y1="68.0" x2="137.0" y2="68.0" stroke="#eb6834" stroke-width="2"/>
+<circle cx="129.0" cy="68.0" r="4" fill="#eb6834" stroke="#fcfcfb" stroke-width="2"/>
+<text x="143.0" y="72.0" font-size="12" text-anchor="start" fill="#0b0b0b">nomic</text>
+<rect x="354.3" y="94.0" width="95.4" height="256.0" fill="#f0efec"/>
+<text x="402.0" y="106.0" font-size="11" text-anchor="middle" fill="#52514e">pre-registered budget</text>
+<line x1="68.0" y1="350.0" x2="736.0" y2="350.0" stroke="#c3c2b7" stroke-width="1"/>
+<text x="62.0" y="354.0" font-size="11" text-anchor="end" fill="#52514e">0.00</text>
+<line x1="68.0" y1="290.0" x2="736.0" y2="290.0" stroke="#e1e0d9" stroke-width="1"/>
+<text x="62.0" y="294.0" font-size="11" text-anchor="end" fill="#52514e">0.05</text>
+<line x1="68.0" y1="230.0" x2="736.0" y2="230.0" stroke="#e1e0d9" stroke-width="1"/>
+<text x="62.0" y="234.0" font-size="11" text-anchor="end" fill="#52514e">0.10</text>
+<line x1="68.0" y1="170.0" x2="736.0" y2="170.0" stroke="#e1e0d9" stroke-width="1"/>
+<text x="62.0" y="174.0" font-size="11" text-anchor="end" fill="#52514e">0.15</text>
+<line x1="68.0" y1="110.0" x2="736.0" y2="110.0" stroke="#e1e0d9" stroke-width="1"/>
+<text x="62.0" y="114.0" font-size="11" text-anchor="end" fill="#52514e">0.20</text>
+<line x1="68.0" y1="290.0" x2="736.0" y2="290.0" stroke="#52514e" stroke-width="1"/>
+<text x="72.0" y="285.0" font-size="11" text-anchor="start" fill="#0b0b0b">gate threshold +0.05</text>
+<text x="115.7" y="366.0" font-size="11" text-anchor="middle" fill="#52514e">128</text>
+<text x="211.1" y="366.0" font-size="11" text-anchor="middle" fill="#52514e">256</text>
+<text x="306.6" y="366.0" font-size="11" text-anchor="middle" fill="#52514e">512</text>
+<text x="402.0" y="366.0" font-size="11" text-anchor="middle" fill="#52514e">1024</text>
+<text x="497.4" y="366.0" font-size="11" text-anchor="middle" fill="#52514e">2048</text>
+<text x="592.9" y="366.0" font-size="11" text-anchor="middle" fill="#52514e">4096</text>
+<text x="688.3" y="366.0" font-size="11" text-anchor="middle" fill="#52514e">8192</text>
+<text x="402.0" y="386.0" font-size="11" text-anchor="middle" fill="#52514e">token budget</text>
+<line x1="109.7" y1="263.4" x2="109.7" y2="239.7" stroke="#2a78d6" stroke-width="2"/>
+<circle cx="109.7" cy="251.8" r="4" fill="#2a78d6" stroke="#fcfcfb" stroke-width="2"><title>bge-small, 128: +0.0818 [+0.0722, +0.0919]</title></circle>
+<line x1="205.1" y1="212.7" x2="205.1" y2="183.8" stroke="#2a78d6" stroke-width="2"/>
+<circle cx="205.1" cy="198.4" r="4" fill="#2a78d6" stroke="#fcfcfb" stroke-width="2"><title>bge-small, 256: +0.1263 [+0.1144, +0.1385]</title></circle>
+<line x1="300.6" y1="175.2" x2="300.6" y2="142.5" stroke="#2a78d6" stroke-width="2"/>
+<circle cx="300.6" cy="157.9" r="4" fill="#2a78d6" stroke="#fcfcfb" stroke-width="2"><title>bge-small, 512: +0.1601 [+0.1457, +0.1729]</title></circle>
+<line x1="396.0" y1="207.6" x2="396.0" y2="181.8" stroke="#2a78d6" stroke-width="2"/>
+<circle cx="396.0" cy="194.6" r="4" fill="#2a78d6" stroke="#fcfcfb" stroke-width="2"><title>bge-small, 1024: +0.1295 [+0.1187, +0.1402]</title></circle>
+<line x1="491.4" y1="244.6" x2="491.4" y2="216.4" stroke="#2a78d6" stroke-width="2"/>
+<circle cx="491.4" cy="230.7" r="4" fill="#2a78d6" stroke="#fcfcfb" stroke-width="2"><title>bge-small, 2048: +0.0994 [+0.0878, +0.1113]</title></circle>
+<line x1="586.9" y1="243.1" x2="586.9" y2="218.5" stroke="#2a78d6" stroke-width="2"/>
+<circle cx="586.9" cy="230.0" r="4" fill="#2a78d6" stroke="#fcfcfb" stroke-width="2"><title>bge-small, 4096: +0.1000 [+0.0891, +0.1096]</title></circle>
+<line x1="682.3" y1="275.6" x2="682.3" y2="256.3" stroke="#2a78d6" stroke-width="2"/>
+<circle cx="682.3" cy="265.9" r="4" fill="#2a78d6" stroke="#fcfcfb" stroke-width="2"><title>bge-small, 8192: +0.0701 [+0.0620, +0.0781]</title></circle>
+<line x1="121.7" y1="261.0" x2="121.7" y2="236.6" stroke="#eb6834" stroke-width="2"/>
+<circle cx="121.7" cy="249.2" r="4" fill="#eb6834" stroke="#fcfcfb" stroke-width="2"><title>nomic, 128: +0.0840 [+0.0742, +0.0945]</title></circle>
+<line x1="217.1" y1="211.9" x2="217.1" y2="182.8" stroke="#eb6834" stroke-width="2"/>
+<circle cx="217.1" cy="197.5" r="4" fill="#eb6834" stroke="#fcfcfb" stroke-width="2"><title>nomic, 256: +0.1271 [+0.1151, +0.1393]</title></circle>
+<line x1="312.6" y1="175.3" x2="312.6" y2="143.0" stroke="#eb6834" stroke-width="2"/>
+<circle cx="312.6" cy="157.3" r="4" fill="#eb6834" stroke="#fcfcfb" stroke-width="2"><title>nomic, 512: +0.1606 [+0.1456, +0.1725]</title></circle>
+<line x1="408.0" y1="205.5" x2="408.0" y2="179.0" stroke="#eb6834" stroke-width="2"/>
+<circle cx="408.0" cy="192.4" r="4" fill="#eb6834" stroke="#fcfcfb" stroke-width="2"><title>nomic, 1024: +0.1313 [+0.1204, +0.1425]</title></circle>
+<line x1="503.4" y1="243.0" x2="503.4" y2="214.3" stroke="#eb6834" stroke-width="2"/>
+<circle cx="503.4" cy="228.8" r="4" fill="#eb6834" stroke="#fcfcfb" stroke-width="2"><title>nomic, 2048: +0.1010 [+0.0892, +0.1131]</title></circle>
+<line x1="598.9" y1="241.5" x2="598.9" y2="216.2" stroke="#eb6834" stroke-width="2"/>
+<circle cx="598.9" cy="228.2" r="4" fill="#eb6834" stroke="#fcfcfb" stroke-width="2"><title>nomic, 4096: +0.1015 [+0.0904, +0.1115]</title></circle>
+<line x1="694.3" y1="279.6" x2="694.3" y2="260.7" stroke="#eb6834" stroke-width="2"/>
+<circle cx="694.3" cy="270.1" r="4" fill="#eb6834" stroke="#fcfcfb" stroke-width="2"><title>nomic, 8192: +0.0666 [+0.0587, +0.0744]</title></circle>
+</svg>

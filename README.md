@@ -78,8 +78,18 @@ It takes seconds and regenerates the committed tables under `results/routing/`, 
 
 The committed tables read the QASPER and Natural Questions grid runs (`runs: [qasper/grid, nq/grid]`), pooled per question across the two runs, each dataset's documents resampled as its own clusters.
 
+## v1 results write-up
+
+[RAG chunking v1: which chunking retrieves best, whether query type matters, and whether to build a router](chunking/2026-10-14-v1-results.md) (2026-10-14) answers the three v1 questions from the committed tables: the best single chunking per budget and view, the chunk size x query type interaction against the research pilot's prior, and the router gate's verdict (build the router in v2: the routing headroom clears the pre-registered +0.05 bar for both embedders), with the ablations, the limitations, and what v2 should do. Its tables and figures (`chunking/figures/`) are regenerated from `results/` without running any retrieval:
+
+```sh
+uv run rag writeup          # re-render the write-up's tables and figures
+uv run rag writeup --check  # change nothing; fail if the write-up or a figure differs from results/
+```
+
 ## Reports
 
+- [RAG chunking v1 results](chunking/2026-10-14-v1-results.md) (2026-10-14): the v1 write-up above.
 - [Chunk size versus query type, and how to test it fairly](chunking/2026-10-10-chunk-size-vs-query-type.md) (2026-10-10): what the literature shows about larger chunks for context-heavy queries and smaller chunks for precise ones, strategies that combine precision and context, chunking-agnostic evaluation (span gold, token recall at a fixed budget), a budget-matched QASPER pilot, a proposed local experiment, and open design questions.
 
 ## Short answer from the first report
