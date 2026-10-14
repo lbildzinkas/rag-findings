@@ -1,4 +1,4 @@
-"""Command line entry point: `rag setup`, `rag sample`, `rag run <config>` and `rag headroom <config>`."""
+"""Command line entry point: `rag setup`, `rag sample`, `rag run <config>`, `rag headroom <config>` and `rag writeup`."""
 
 from __future__ import annotations
 
@@ -83,6 +83,20 @@ def main(argv: list[str] | None = None) -> int:
         help="project root holding runs/ and results/ (default: current directory)",
     )
 
+    writeup_parser = sub.add_parser(
+        "writeup", help="regenerate the v1 write-up's tables and figures from the committed result tables"
+    )
+    writeup_parser.add_argument(
+        "--check",
+        action="store_true",
+        help="change nothing; fail when the write-up or a figure differs from the result tables",
+    )
+    writeup_parser.add_argument(
+        "--root",
+        default=None,
+        help="project root holding results/ and chunking/ (default: current directory)",
+    )
+
     args = parser.parse_args(argv)
     paths = _paths(args)
 
@@ -140,6 +154,18 @@ def main(argv: list[str] | None = None) -> int:
         from .routing import load_headroom_config, run_headroom
 
         run_headroom(load_headroom_config(args.config), paths)
+        return 0
+
+    if args.command == "writeup":
+        from .writeup import check, write
+
+        if args.check:
+            problems = check(paths.root)
+            for problem in problems:
+                print(problem)
+            return 1 if problems else 0
+        for relative in write(paths.root):
+            print(f"wrote {relative}")
         return 0
 
     return 2  # pragma: no cover
