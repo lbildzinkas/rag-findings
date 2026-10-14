@@ -2,7 +2,12 @@ kind: grid
 dataset:
   name: nq
   splits: [dev]
-pipeline: bm25
+# the production line (hybrid BM25 + vector, fused by reciprocal rank
+# fusion, then reranked over the fused top 30) first, then its ablations
+pipelines: [hybrid-rerank, hybrid, vector, bm25]
+embedders: [bge-small, nomic]
+rrf_k: 60
+rerank_depth: 30
 chunkings:
   - {name: fixed-64, method: fixed, chunk_tokens: 64}
   - {name: fixed-128, method: fixed, chunk_tokens: 128}
