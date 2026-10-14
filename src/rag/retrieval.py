@@ -5,9 +5,13 @@ All papers' chunks of one chunking go into one table (one per embedder for
 vectors). A search runs over the whole collection, or, given a document id,
 only within that document (the table is prefiltered to it; BM25 statistics
 stay those of the collection). Vector search is exact (a flat scan, no
-approximate index) by cosine similarity. Search results are re-sorted by
-(-score, doc_id, chunk index) so packing is deterministic regardless of
-the engine's tie order.
+approximate index) by cosine similarity.
+
+Search results are deterministic everywhere a ranked list is cut: rows are
+re-sorted by (-score, doc_id, chunk index), and the search over-fetches
+past the cutoff, extending the fetch while the engine's arbitrary tie
+order could still decide which tied rows make the cut (see
+`_deterministic_cut`); the scoring itself is untouched.
 """
 
 from __future__ import annotations
@@ -76,6 +80,32 @@ def _doc_filter(doc_id: str) -> str:
     return f"doc_id = '{escaped}'"
 
 
+_OVERFETCH = 64  # rows fetched past the cutoff before ties force an extension
+
+
+def _deterministic_cut(fetch: Callable[[int], list[RankedChunk]], limit: int) -> list[RankedChunk]:
+    """The top `limit` of the engine's ranking, the same every run.
+
+    `fetch(n)` returns the engine's top `n` rows re-sorted by
+    (-score, doc_id, chunk index). The engine cuts its top `n` by score in
+    an arbitrary tie order, and that cut is the one place a ranked list
+    can flip between identical runs (the re-sort cannot fix which tied
+    rows were kept). So fetch past the cutoff and keep extending the fetch
+    while the worst fetched score still ties the score at the cutoff: once
+    it is strictly below, every unfetched row scores at most that too, so
+    no tie can straddle the cut and the first `limit` re-sorted rows are
+    stable whatever tie subset the engine happened to return.
+    """
+    if limit <= 0:
+        return []
+    n = limit + _OVERFETCH
+    while True:
+        ranked = fetch(n)
+        if len(ranked) < n or len(ranked) <= limit or ranked[limit - 1].score > ranked[-1].score:
+            return ranked[:limit]
+        n *= 2
+
+
 class BM25Index:
     """A LanceDB full-text index over every chunk of the collection."""
 
@@ -100,11 +130,15 @@ class BM25Index:
         """Return up to `limit` chunks ranked by BM25, deterministically;
         only chunks of `doc_id` when it is given."""
         table = self._db.open_table(self._table)
-        search = table.search(query, query_type="fts")
-        if doc_id is not None:
-            search = search.where(_doc_filter(doc_id), prefilter=True)
-        rows = search.limit(limit).to_list()
-        return _ranked(rows, [float(row["_score"]) for row in rows])
+
+        def fetch(n: int) -> list[RankedChunk]:
+            search = table.search(query, query_type="fts")
+            if doc_id is not None:
+                search = search.where(_doc_filter(doc_id), prefilter=True)
+            rows = search.limit(n).to_list()
+            return _ranked(rows, [float(row["_score"]) for row in rows])
+
+        return _deterministic_cut(fetch, limit)
 
 
 class VectorIndex:
@@ -134,11 +168,15 @@ class VectorIndex:
         """Return up to `limit` chunks by cosine similarity, deterministically;
         only chunks of `doc_id` when it is given."""
         table = self._db.open_table(self._table)
-        search = table.search(np.asarray(vector, dtype=np.float32)).distance_type("cosine")
-        if doc_id is not None:
-            search = search.where(_doc_filter(doc_id), prefilter=True)
-        rows = search.select([*_CHUNK_COLUMNS, "_distance"]).limit(limit).to_arrow().to_pylist()
-        return _ranked(rows, [1.0 - float(row["_distance"]) for row in rows])
+
+        def fetch(n: int) -> list[RankedChunk]:
+            search = table.search(np.asarray(vector, dtype=np.float32)).distance_type("cosine")
+            if doc_id is not None:
+                search = search.where(_doc_filter(doc_id), prefilter=True)
+            rows = search.select([*_CHUNK_COLUMNS, "_distance"]).limit(n).to_arrow().to_pylist()
+            return _ranked(rows, [1.0 - float(row["_distance"]) for row in rows])
+
+        return _deterministic_cut(fetch, limit)
 
 
 def reciprocal_rank_fusion[T: Hashable](rankings: Sequence[Sequence[T]], k: int = 60) -> list[T]:

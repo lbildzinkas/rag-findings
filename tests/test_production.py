@@ -9,6 +9,7 @@ import json
 import re
 import zlib
 from collections.abc import Sequence
+from pathlib import Path
 
 import numpy as np
 import pyarrow.parquet as pq
@@ -21,7 +22,7 @@ from rag.grid import run_grid, sample_papers
 from rag.models import EMBEDDERS, RERANKER, EmbedderSpec, RerankerSpec
 from rag.paths import Paths
 from rag.retrieval import reciprocal_rank_fusion, rerank_head
-from tests.conftest import FakeEncoding
+from tests.conftest import FakeEncoding, make_answer, make_paper, make_qa, write_split
 from tests.test_grid import GRID, build_env, table_rows
 
 PRODUCTION = {
@@ -204,6 +205,45 @@ def test_the_unreranked_tail_is_flagged_only_on_the_production_line(production_r
     assert tail and {r["view"] for r in tail} >= {"fair"}
     # three 16-token chunks hold 48 tokens: a 256 budget needs the tail
     assert any(r["chunking"] == "fixed-16" and r["budget"] == 256 for r in tail)
+
+
+TIE_PARAGRAPH = "Kerberos tickets carry session keys issued by the center for every service realm."
+
+
+def build_tie_env(root: Path) -> None:
+    """A corpus whose chunks nearly all share one text, so every search
+    cutoff (search_depth 4) falls well inside a tie group."""
+
+    def papers(label: str, n: int) -> dict:
+        return {
+            f"paper{label}{i:02d}": make_paper(
+                f"paper{label}{i:02d}",
+                TIE_PARAGRAPH,
+                [("S", [TIE_PARAGRAPH, TIE_PARAGRAPH])],
+                qas=[
+                    make_qa(f"q{label}{i:02d}", "tickets session keys center", [make_answer(evidence=[TIE_PARAGRAPH])])
+                ],
+            )
+            for i in range(n)
+        }
+
+    write_split(root / "data" / "qasper" / "qasper-dev-v0.3.json", papers("dev", 6))
+    write_split(root / "data" / "qasper" / "qasper-test-v0.3.json", papers("test", 6))
+
+
+def test_two_independent_runs_render_byte_identical_result_tables(tmp_path):
+    """Two full grid runs over the same fixture, each with its own indexes,
+    caches and run directory, must render byte-identical result tables:
+    which tied rows a search cutoff keeps may not leak into the tables."""
+    raw = {**PRODUCTION, "budgets": [16, 32, 64], "search_depth": 4}
+    rendered = {}
+    for run in ("first", "second"):
+        root = tmp_path / run
+        build_tie_env(root)
+        outcome = run_grid(parse_grid_config(raw), Paths(root=root), encoding=FakeEncoding(), models=FakeModels())
+        rendered[run] = {path.name: path.read_bytes() for path in outcome.tables}
+    assert rendered["first"]
+    assert rendered["first"] == rendered["second"]
 
 
 def test_r5_lists_production_first_and_fills_or_explains_every_cell(production_run):
