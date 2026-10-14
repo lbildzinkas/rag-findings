@@ -70,7 +70,7 @@ def main(argv: list[str] | None = None) -> int:
         type=int,
         default=None,
         metavar="N",
-        help="grid runs only: a seeded sample of N papers, with outputs and tables under runs/<run_name>-sampleN/",
+        help="grid runs only: a seeded sample of N papers, with outputs and tables under runs/<dataset>/<run_name>-sampleN/",
     )
 
     headroom_parser = sub.add_parser(
