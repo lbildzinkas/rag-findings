@@ -26,7 +26,6 @@ setups:
   - name: confidence
     runs: {qasper: v2-routers, nq: v2-routers}
     pipeline: confidence
-  # the late chunkings' packed spans arrive with their own run (issue #22)
   - name: late-128
     runs: {qasper: v2-late, nq: v2-late}
     chunking: late-128

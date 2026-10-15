@@ -1,5 +1,5 @@
-"""Command line entry point: `rag setup`, `rag sample`, `rag reader-sample`,
-`rag run <config>`, `rag headroom <config>`, `rag answers <config>`, `rag routers <config>` and `rag writeup`."""
+"""Command line entry point: `rag setup`, `rag sample`, `rag reader-sample`, `rag run <config>`,
+`rag headroom <config>`, `rag contenders <config>`, `rag answers <config>`, `rag routers <config>` and `rag writeup`."""
 
 from __future__ import annotations
 
@@ -121,6 +121,16 @@ def main(argv: list[str] | None = None) -> int:
     )
     headroom_parser.add_argument("config", type=Path, help="path to the headroom config YAML")
     headroom_parser.add_argument(
+        "--root",
+        default=None,
+        help="project root holding runs/ and results/ (default: current directory)",
+    )
+
+    contenders_parser = sub.add_parser(
+        "contenders", help="an indexing contender next to the chunkings it is compared with, per dataset and pooled"
+    )
+    contenders_parser.add_argument("config", type=Path, help="path to the contenders config YAML")
+    contenders_parser.add_argument(
         "--root",
         default=None,
         help="project root holding runs/ and results/ (default: current directory)",
@@ -265,6 +275,12 @@ def main(argv: list[str] | None = None) -> int:
         from .routing import load_headroom_config, run_headroom
 
         run_headroom(load_headroom_config(args.config), paths)
+        return 0
+
+    if args.command == "contenders":
+        from .contenders import load_contenders_config, run_contenders
+
+        run_contenders(load_contenders_config(args.config), paths)
         return 0
 
     if args.command == "answers":

@@ -13,6 +13,11 @@ children; packing then returns their parents. All of a question's
 reranking is one batch: the uncached (question, chunk) pairs of every
 chunking, embedder and search scope, each list contributing only its own
 fused top `rerank_depth`.
+
+A late chunking (see rag.late) is indexed from vectors pooled out of
+whole-document token embeddings, cached under the model key plus
+`#late-8192`; its BM25 index, reranker scores, packing and scoring are
+those of the fixed chunking with the same spans.
 """
 
 from __future__ import annotations
@@ -27,6 +32,7 @@ from .cache import Cache, SpanKey
 from .chunking import Chunk, chunk_text
 from .config import PIPELINES, PRODUCTION_LINE, GridConfig
 from .documents import Document
+from .late import LATE_KEY_SUFFIX, LATE_WINDOW, Span, WindowStats, late_vectors, plan_windows
 from .models import Embedder, EmbedderSpec, ModelSource, RerankerSpec
 from .qasper import Question
 from .retrieval import BM25Index, VectorIndex, reciprocal_rank_fusion, rerank_head
@@ -68,14 +74,16 @@ class EmbedStats:
     chunk_vectors_cached: int = 0
     queries_embedded: int = 0  # question vectors the model embedded (cache misses)
     queries_cached: int = 0
+    late_windows_embedded: int = 0  # late chunking: windows the model read (documents not fully cached)
 
     def as_dict(self) -> dict[str, int]:
-        return {
+        out = {
             "chunk_vectors_embedded": self.chunk_vectors_embedded,
             "chunk_vectors_cached": self.chunk_vectors_cached,
             "queries_embedded": self.queries_embedded,
             "queries_cached": self.queries_cached,
         }
+        return out | ({"late_windows_embedded": self.late_windows_embedded} if self.late_windows_embedded else {})
 
 
 def _log(message: str) -> None:
@@ -96,6 +104,7 @@ class Retriever:
     stats: RerankStats = field(default_factory=RerankStats)
     embed_stats: EmbedStats = field(default_factory=EmbedStats)
     truncated: dict[tuple[str, str], float] = field(default_factory=dict)  # (chunking, embedder) -> share
+    late_windows: dict[str, WindowStats] = field(default_factory=dict)  # embedder -> late chunking's windows
 
     def __post_init__(self) -> None:
         self._embedders = {name: self.models.embedder(name) for name in self.cfg.embedders}
@@ -148,6 +157,54 @@ class Retriever:
         if not vectors:
             return np.zeros((0, 1), dtype=np.float32)
         return np.stack(vectors).astype(np.float32)
+
+    def index_late(self, chunkings: Sequence[tuple[str, Sequence[Chunk]]], blocks: dict[str, list[Span]], log=_log):
+        """Embed and index the late chunkings under every embedder: per
+        document, one model pass per window serves all of them. A document
+        whose late vectors are all cached is not read again; its windows
+        are still planned, so the manifest's window counts never depend on
+        the cache."""
+        by_doc: list[dict[str, list[Chunk]]] = []
+        for _, units in chunkings:
+            groups: dict[str, list[Chunk]] = {}
+            for unit in units:
+                groups.setdefault(unit.doc_id, []).append(unit)
+            by_doc.append(groups)
+        for embedder_name, embedder in self._embedders.items():
+            key = model_key(embedder.spec) + LATE_KEY_SUFFIX
+            stats = self.late_windows.setdefault(embedder_name, WindowStats())
+            vectors: dict[tuple[int, str, int, int], np.ndarray] = {}
+            for doc_id in sorted(self.documents):
+                doc, doc_hash = self.documents[doc_id], self._doc_hashes[doc_id]
+                spans = [[(u.start, u.end) for u in groups.get(doc_id, [])] for groups in by_doc]
+                windows = plan_windows(doc.text, blocks[doc_id], embedder.input_tokens, LATE_WINDOW)
+                stats.add(windows)
+                cached = self.cache.vectors(key, doc_hash)
+                wanted = {span for doc_spans in spans for span in doc_spans}
+                if wanted <= cached.keys():
+                    self.embed_stats.chunk_vectors_cached += sum(map(len, spans))
+                else:
+                    pooled = late_vectors(doc.text, spans, windows, embedder, stats)  # type: ignore[arg-type]
+                    new = {
+                        span: v
+                        for doc_spans, vs in zip(spans, pooled, strict=True)
+                        for span, v in zip(doc_spans, vs, strict=True)
+                    }
+                    self.cache.put_vectors(key, [((doc_hash, s, e), v) for (s, e), v in new.items()])
+                    cached = new
+                    self.embed_stats.chunk_vectors_embedded += sum(map(len, spans))
+                    self.embed_stats.late_windows_embedded += len(windows)
+                for c, doc_spans in enumerate(spans):
+                    for s, e in doc_spans:
+                        vectors[(c, doc_id, s, e)] = cached[(s, e)]
+            if self.embed_stats.late_windows_embedded:
+                log(f"  late chunking x {embedder_name}: {self.embed_stats.late_windows_embedded} windows embedded")
+            for c, (name, units) in enumerate(chunkings):
+                rows = [vectors[(c, u.doc_id, u.start, u.end)] for u in units]
+                index = VectorIndex(self.lance_dir, table=f"{name}--{embedder_name}")
+                index.build(units, np.stack(rows).astype(np.float32) if rows else np.zeros((0, 1), dtype=np.float32))
+                self._vectors[(name, embedder_name)] = index
+                self.truncated[(name, embedder_name)] = 0.0  # no window exceeds the embedder's input
 
     def embed_questions(self, questions: Sequence[Question]) -> None:
         texts = sorted({q.text for q in questions})

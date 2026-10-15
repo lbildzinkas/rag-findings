@@ -23,6 +23,11 @@ the production and fair views, and an optional `export_packed` lists the
 (view, budget, scope) cells whose packed chunks are written to the run's
 `packed.parquet`. A config without these keys keeps its canonical JSON,
 and so its hash: v1 configs render exactly as before.
+
+A fixed chunking can set `embedding: late` (default `chunk`): late
+chunking, the same spans with vectors pooled from the whole document's
+token embeddings (see rag.late). Only that chunking's canonical JSON
+gains the key.
 """
 
 from __future__ import annotations
@@ -177,6 +182,7 @@ def _validate(cfg: RunConfig) -> None:
 
 
 CHUNKING_METHODS = ("fixed", "section_aware", "small_to_big")
+EMBEDDINGS = ("chunk", "late")  # each chunk embedded alone, or late chunking
 SCOPES = ("collection", "document")
 # the production line first, then its ablations: the order of every table
 PRODUCTION_LINE = "hybrid-rerank"  # hybrid search, then the reranker
@@ -188,13 +194,15 @@ EMBEDDING_PIPELINES = (PRODUCTION_LINE, "hybrid", "vector")
 class ChunkingSpec:
     """One chunking of the grid: fixed windows (`chunk_tokens`),
     section-aware chunks capped at `max_tokens`, or small-to-big children
-    of `child_tokens` under section-aware parents capped at `max_tokens`."""
+    of `child_tokens` under section-aware parents capped at `max_tokens`.
+    `embedding` is `late` for late chunking (fixed windows only)."""
 
     name: str
     method: str
     chunk_tokens: int = 0
     max_tokens: int = 0
     child_tokens: int = 0
+    embedding: str = "chunk"
 
     def as_dict(self) -> dict[str, Any]:
         out: dict[str, Any] = {"name": self.name, "method": self.method}
@@ -204,7 +212,13 @@ class ChunkingSpec:
             out["max_tokens"] = self.max_tokens
         if self.method == "small_to_big":
             out["child_tokens"] = self.child_tokens
+        if self.late:
+            out["embedding"] = self.embedding
         return out
+
+    @property
+    def late(self) -> bool:
+        return self.embedding == "late"
 
     @property
     def fixed_size(self) -> int | None:
@@ -299,7 +313,12 @@ def _parse_chunking(raw: dict[str, Any]) -> ChunkingSpec:
         chunk_tokens=int(raw["chunk_tokens"]) if method == "fixed" else 0,
         max_tokens=int(raw["max_tokens"]) if method != "fixed" else 0,
         child_tokens=int(raw["child_tokens"]) if method == "small_to_big" else 0,
+        embedding=str(raw.get("embedding", "chunk")),
     )
+    if spec.embedding not in EMBEDDINGS:
+        raise ValueError(f"chunking {spec.name}: embedding must be one of {list(EMBEDDINGS)}")
+    if spec.late and method != "fixed":
+        raise ValueError(f"chunking {spec.name}: late chunking needs fixed windows")
     sizes = {"fixed": [spec.chunk_tokens], "section_aware": [spec.max_tokens]}.get(
         method, [spec.max_tokens, spec.child_tokens]
     )
@@ -364,6 +383,7 @@ def _validate_grid(cfg: GridConfig) -> None:
         raise ValueError(
             f"search_depth {cfg.search_depth} x {min(smallest)}-token chunks cannot fill the {cfg.budgets[-1]} budget"
         )
+    _validate_late(cfg)
     if cfg.budget_top_n is not None and cfg.budget_top_n <= 0:
         raise ValueError("budget_top_n must be positive")
     cells = {(cell.view, cell.budget, cell.scope) for cell in cfg.export_packed}
@@ -392,6 +412,25 @@ def _validate_pipelines(cfg: GridConfig) -> None:
         raise ValueError("embedders are required by, and only by, the vector, hybrid and hybrid-rerank pipelines")
     if cfg.rrf_k <= 0 or cfg.rerank_depth <= 0:
         raise ValueError("rrf_k and rerank_depth must be positive")
+
+
+def _validate_late(cfg: GridConfig) -> None:
+    from .late import LATE_WINDOW, WINDOW_BLOCK_TOKENS
+    from .models import EMBEDDERS
+
+    late = [c for c in cfg.chunkings if c.late]
+    if not late:
+        return
+    if not cfg.embedders:
+        raise ValueError("late chunking needs an embedder")
+    short = [e for e in cfg.embedders if EMBEDDERS[e].max_tokens < LATE_WINDOW]
+    if short:
+        raise ValueError(f"late chunking needs embedders that read {LATE_WINDOW} tokens; {short} read fewer")
+    for spec in late:
+        if WINDOW_BLOCK_TOKENS % spec.chunk_tokens:
+            raise ValueError(
+                f"chunking {spec.name}: late chunks must divide the {WINDOW_BLOCK_TOKENS}-token blocks windows are cut at"
+            )
 
 
 def config_hash(cfg: RunConfig | GridConfig) -> str:

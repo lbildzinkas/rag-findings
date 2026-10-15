@@ -11,6 +11,12 @@ chunk "exceeds the input limit" exactly when the model truncates it. The
 task prefixes are what the model reads, not retrieved text: they never
 count toward a token budget, which is always in cl100k tokens.
 
+nomic is loaded with `rotary_scaling_factor=2`, the model card's setting
+for inputs past its 2048 trained positions, which late chunking's
+8192-token windows need. It leaves inputs up to 2048 tokens bit-identical,
+and no v1 chunk or question reached that, so the cached vectors stay valid
+under the same model key.
+
 Tests inject fakes with the same small interface (`Embedder`, `Reranker`),
 so they need no downloads.
 """
@@ -22,9 +28,11 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from functools import cache, lru_cache
 from pathlib import Path
-from typing import Protocol
+from typing import Any, Protocol
 
 import numpy as np
+
+from .late import TokenEmbeddings
 
 
 @dataclass(frozen=True)
@@ -37,6 +45,7 @@ class EmbedderSpec:
     query_prefix: str = ""
     code_repo: str = ""  # repository of the model's remote code, when it has some
     code_revision: str = ""
+    model_kwargs: tuple[tuple[str, Any], ...] = ()  # passed to the model's from_pretrained
 
 
 @dataclass(frozen=True)
@@ -64,6 +73,7 @@ EMBEDDERS: dict[str, EmbedderSpec] = {
             query_prefix="search_query: ",
             code_repo="nomic-ai/nomic-bert-2048",
             code_revision="7710840340a098cfb869c4f65e87cf2b1b70caca",
+            model_kwargs=(("rotary_scaling_factor", 2),),
         ),
     )
 }
@@ -168,7 +178,10 @@ class SentenceTransformerEmbedder:
         if spec.code_repo:
             _check_code_revision(spec, Path(_local_path(spec.code_repo, "main")).name)
         self._model = SentenceTransformer(
-            _local_path(spec.model_id, spec.revision), device=_device(), trust_remote_code=bool(spec.code_repo)
+            _local_path(spec.model_id, spec.revision),
+            device=_device(),
+            trust_remote_code=bool(spec.code_repo),
+            model_kwargs=dict(spec.model_kwargs) or None,
         )
         self._model.max_seq_length = spec.max_tokens
 
@@ -193,6 +206,23 @@ class SentenceTransformerEmbedder:
 
     def embed_queries(self, texts: Sequence[str]) -> np.ndarray:
         return self._encode(texts, self.spec.query_prefix)
+
+    def token_embeddings(self, text: str) -> TokenEmbeddings:
+        """Every token's embedding for one document text read with the
+        document prefix, its offsets in `text` (None for the prefix and
+        special tokens), for late chunking."""
+        prefix = self.spec.document_prefix
+        offsets = self._model.tokenizer(
+            prefix + text, add_special_tokens=True, return_offsets_mapping=True, truncation=False, verbose=False
+        )["offset_mapping"]
+        vectors = self._model.encode(
+            prefix + text, output_value="token_embeddings", convert_to_numpy=False, show_progress_bar=False
+        )
+        vectors = vectors.float().cpu().numpy()
+        if len(vectors) != len(offsets):
+            raise ValueError(f"{len(vectors)} token embeddings for {len(offsets)} tokens")
+        own = [(s - len(prefix), e - len(prefix)) if s >= len(prefix) and e > s else None for s, e in offsets]
+        return TokenEmbeddings(own, vectors)
 
 
 class CrossEncoderReranker:
