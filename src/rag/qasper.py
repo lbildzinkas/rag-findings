@@ -16,6 +16,13 @@ evidence is anchored into that text:
 A question is kept when at least one annotator has a paragraph-anchored
 span; questions whose answers are all unanswerable, or whose evidence is
 only figures, tables or sections, are excluded and counted by reason.
+
+Each answering annotator also contributes one reference answer for the
+reader stage (never read by retrieval): the extractive spans joined
+with ", " (the QASPER evaluator's convention), else the free-form
+answer, else "Yes"/"No". The three fields never co-occur in QASPER,
+so the order does not change the references. Unanswerable annotations
+are not references.
 """
 
 from __future__ import annotations
@@ -116,6 +123,28 @@ def anchor_evidence(
     return _Anchor(span=None, kind="figure_table" if stripped_float else "unanchored")
 
 
+def answer_reference(ans: dict) -> str | None:
+    """One answering annotation's reference answer, or None.
+
+    Extractive spans join with ", " (the QASPER evaluator's convention);
+    `yes_no` is a JSON boolean (`False` means "No", so truthiness must
+    not decide); an annotation with no answer text at all is no
+    reference.
+    """
+    if ans.get("unanswerable", False):
+        return None
+    spans = ans.get("extractive_spans") or []
+    if spans:
+        return ", ".join(spans)
+    free_form = ans.get("free_form_answer") or ""
+    if free_form:
+        return free_form
+    yes_no = ans.get("yes_no")
+    if yes_no is None:
+        return None
+    return "Yes" if yes_no else "No"
+
+
 def load_split(split: str, path: Path) -> QasperSplit:
     """Load one QASPER split json into documents, questions and exclusions."""
     dataset_hash = hashlib.sha256(path.read_bytes()).hexdigest()
@@ -130,6 +159,9 @@ def load_split(split: str, path: Path) -> QasperSplit:
         "figure_table": 0,
         "section": 0,
         "unanchored": 0,
+        "answer_extractive": 0,
+        "answer_free_form": 0,
+        "answer_yes_no": 0,
     }
 
     for doc_id in sorted(raw):
@@ -144,6 +176,7 @@ def load_split(split: str, path: Path) -> QasperSplit:
         for qa in paper.get("qas", []):
             question_id = qa["question_id"]
             annotator_spans: list[tuple[LabelledSpan, ...]] = []
+            references: list[tuple[str, str]] = []  # (reference answer, its kind)
             any_answerable = False
             any_figure_table = False
             any_section = False
@@ -153,6 +186,16 @@ def load_split(split: str, path: Path) -> QasperSplit:
                 if ans.get("unanswerable", False):
                     continue
                 any_answerable = True
+                reference = answer_reference(ans)
+                if reference is not None:
+                    kind = (
+                        "answer_extractive"
+                        if ans.get("extractive_spans")
+                        else "answer_free_form"
+                        if ans.get("free_form_answer")
+                        else "answer_yes_no"
+                    )
+                    references.append((reference, kind))
                 spans: list[LabelledSpan] = []
                 for ev in ans.get("evidence", []):
                     anchor = anchor_evidence(ev, paragraph_spans, paragraphs, captions)
@@ -181,6 +224,8 @@ def load_split(split: str, path: Path) -> QasperSplit:
                     annotator_spans.append(deduped)
 
             if annotator_spans:
+                for _, kind in references:
+                    evidence_counts[kind] += 1
                 questions.append(
                     Question(
                         question_id=question_id,
@@ -188,6 +233,7 @@ def load_split(split: str, path: Path) -> QasperSplit:
                         split=split,
                         text=qa["question"],
                         annotators=tuple(annotator_spans),
+                        references=tuple(reference for reference, _ in references),
                     )
                 )
             elif any_answerable and (any_figure_table or any_section or any_unanchored):

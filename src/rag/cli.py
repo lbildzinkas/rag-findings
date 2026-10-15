@@ -1,4 +1,5 @@
-"""Command line entry point: `rag setup`, `rag sample`, `rag run <config>`, `rag headroom <config>` and `rag writeup`."""
+"""Command line entry point: `rag setup`, `rag sample`, `rag reader-sample`,
+`rag run <config>`, `rag headroom <config>`, `rag answers <config>` and `rag writeup`."""
 
 from __future__ import annotations
 
@@ -58,6 +59,46 @@ def main(argv: list[str] | None = None) -> int:
         help="project root holding data/ (default: current directory)",
     )
 
+    reader_sample_parser = sub.add_parser(
+        "reader-sample",
+        help="draw the v2 reader sample (500 QASPER questions by whole paper, 250 + 250 Natural Questions by query "
+        "type) and commit it as an id list",
+    )
+    reader_sample_parser.add_argument(
+        "--seed",
+        type=int,
+        default=0,
+        help="sampling seed recorded in the id list header (default: 0)",
+    )
+    reader_sample_parser.add_argument(
+        "--per-dataset",
+        type=int,
+        default=500,
+        help="QASPER questions, filled by whole papers (default: 500)",
+    )
+    reader_sample_parser.add_argument(
+        "--per-type",
+        type=int,
+        default=250,
+        help="Natural Questions per query type, one per page (default: 250)",
+    )
+    reader_sample_parser.add_argument(
+        "--out",
+        type=Path,
+        default=None,
+        help="id list path (default: configs/v2/reader-sample.txt under the root)",
+    )
+    reader_sample_parser.add_argument(
+        "--check",
+        action="store_true",
+        help="change nothing; fail when the committed id list differs from a fresh draw",
+    )
+    reader_sample_parser.add_argument(
+        "--root",
+        default=None,
+        help="project root holding data/ (default: current directory)",
+    )
+
     run_parser = sub.add_parser("run", help="run a retrieval eval (one cell, or a grid with `kind: grid`)")
     run_parser.add_argument("config", type=Path, help="path to the run config YAML")
     run_parser.add_argument(
@@ -81,6 +122,23 @@ def main(argv: list[str] | None = None) -> int:
         "--root",
         default=None,
         help="project root holding runs/ and results/ (default: current directory)",
+    )
+
+    answers_parser = sub.add_parser(
+        "answers",
+        help="the v2 reader stage: assemble every setup from packed.parquet, render the fixed prompt; --dry-run "
+        "reports token counts without calling a model",
+    )
+    answers_parser.add_argument("config", type=Path, help="path to the answers config YAML")
+    answers_parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="render every prompt of every setup and report token counts, without calling a model",
+    )
+    answers_parser.add_argument(
+        "--root",
+        default=None,
+        help="project root holding data/, runs/ and results/ (default: current directory)",
     )
 
     writeup_parser = sub.add_parser(
@@ -150,11 +208,56 @@ def main(argv: list[str] | None = None) -> int:
         run(args.config, paths)
         return 0
 
+    if args.command == "reader-sample":
+        from .config import DatasetRef
+        from .reader_sample import (
+            draw_reader_sample,
+            reference_counts,
+            sample_path,
+            write_sample,
+        )
+        from .run import load_datasets
+
+        sources = (DatasetRef("qasper", ("dev", "test")), DatasetRef("nq", ("dev",)))
+        splits, _, _ = load_datasets(paths, sources)
+        out_path = args.out if args.out is not None else sample_path(paths.root)
+        drawn = draw_reader_sample(splits, args.seed, args.per_dataset, args.per_type)
+        if args.check:
+            from .reader_sample import read_sample
+
+            _, committed = read_sample(out_path)
+            if {d: tuple(sorted(ids)) for d, ids in committed.items()} != {
+                d: tuple(sorted(ids)) for d, ids in drawn.items()
+            }:
+                print(f"committed sample differs from a fresh draw with seed {args.seed}: {out_path}")
+                return 1
+            print(f"reader sample matches a fresh draw with seed {args.seed}: {out_path}")
+        else:
+            write_sample(out_path, args.seed, drawn["qasper"], drawn["nq"])
+            print(f"drew {len(drawn['qasper'])} qasper and {len(drawn['nq'])} nq questions: {out_path}")
+        counts = reference_counts(splits)
+        print(f"  qasper references over kept questions: {counts['qasper']}")
+        print(f"  nq references: {counts['nq']}")
+        return 0
+
     if args.command == "headroom":
         from .routing import load_headroom_config, run_headroom
 
         run_headroom(load_headroom_config(args.config), paths)
         return 0
+
+    if args.command == "answers":
+        from .answers import dry_run, load_answers_config, print_dry_run
+
+        cfg = load_answers_config(args.config)
+        if not args.dry_run:
+            raise SystemExit(
+                "the reader model client arrives with the reader run (the run stage reuses this stage's prompts); "
+                "use --dry-run to render prompts and report token counts"
+            )
+        report = dry_run(cfg, paths)
+        print_dry_run(cfg, report)
+        return 1 if report["over_budget_prompts"] else 0
 
     if args.command == "writeup":
         from .writeup import check, write

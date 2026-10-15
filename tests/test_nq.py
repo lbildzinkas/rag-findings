@@ -679,3 +679,20 @@ def test_pooled_run_keeps_each_dataset_n_visible(tmp_path):
     # pooled runs write under their own label, never over the qasper tables
     assert (tmp_path / "results" / "pooled" / "r2-grid.md").is_file()
     assert not (tmp_path / "results" / "qasper").exists()
+
+
+def test_load_nq_references_by_query_type(tmp_path):
+    build_env(tmp_path)
+    split = load_nq(Paths(root=tmp_path))
+    by_id = {q.question_id: q for q in split.questions}
+    members = "The United States Senate consists of 100 members ."
+    leaders = "Parties elect their leaders ."
+    # precise: each annotator's short-answer texts and yes/no answers
+    assert by_id["q-short"].references == ("100", "100")
+    assert by_id["q-yesno"].references == ("Yes", "Yes")
+    # context: the long-answer paragraph per annotator, never the stray short span
+    assert by_id["q-long"].references == (leaders, members)
+    assert by_id["q-long2"].references == (members, leaders)
+    assert split.evidence_counts["reference_short_span"] == 2
+    assert split.evidence_counts["reference_yes_no"] == 2
+    assert split.evidence_counts["reference_long_answer"] == 4  # q-long and q-long2 only

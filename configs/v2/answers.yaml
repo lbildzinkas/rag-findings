@@ -1,0 +1,55 @@
+kind: answers
+run_name: v2-answers
+dataset:
+  name: pooled
+  sources:
+    - {name: qasper, splits: [dev, test]}
+    - {name: nq, splits: [dev]}
+sample: configs/v2/reader-sample.txt
+# every setup reads the same cell of its runs' packed.parquet: the budget
+# view's primary cell (ADR 0006), 1024 tokens, collection search
+view: budget
+budget: 1024
+top_n: 20
+scope: collection
+pipeline: hybrid-rerank
+embedder: nomic
+# smallest chunk first: the oracle router's tie-break order, as configs/v2/budget-view.yaml
+oracle_chunkings: [fixed-64, fixed-128, fixed-256, fixed-512, section-aware, small-to-big, fixed-1024]
+setups:
+  - name: section-aware
+    runs: {qasper: v2-baseline, nq: v2-baseline}
+    chunking: section-aware
+  # the routers' packed spans arrive with their own run (issue #21)
+  - name: search-all
+    runs: {qasper: v2-routers, nq: v2-routers}
+    pipeline: search-all
+  - name: confidence
+    runs: {qasper: v2-routers, nq: v2-routers}
+    pipeline: confidence
+  # the late chunkings' packed spans arrive with their own run (issue #22)
+  - name: late-128
+    runs: {qasper: v2-late, nq: v2-late}
+    chunking: late-128
+  - name: late-256
+    runs: {qasper: v2-late, nq: v2-late}
+    chunking: late-256
+  # the contextual chunkings arrive with their own run (issue #24); the
+  # prefixed variant counts prefix tokens against the budget
+  - name: contextual-256
+    runs: {qasper: v2-contextual, nq: v2-contextual}
+    chunking: contextual-256
+  - name: contextual-256-prefixed
+    runs: {qasper: v2-contextual, nq: v2-contextual}
+    chunking: contextual-256-prefixed
+  # per question, the chunking with the highest recall at the cell, ties to
+  # the smaller chunk, read from the baseline runs
+  - name: oracle
+    kind: oracle
+    runs: {qasper: v2-baseline, nq: v2-baseline}
+  # the no-retrieval floor
+  - name: no-retrieval
+    kind: none
+resamples: 10000
+seed: 0
+confidence: 0.95
