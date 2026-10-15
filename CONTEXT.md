@@ -18,6 +18,12 @@ _Avoid_: parent-document retrieval, hierarchical chunking
 A chunking whose units follow the document's own sections and paragraphs instead of fixed token windows.
 _Avoid_: structural chunking, semantic chunking
 
+**Late chunking**:
+Embed the whole document first, then cut the token embeddings into chunks, so each chunk's vector carries its surroundings.
+
+**Contextual chunk**:
+A chunk indexed with a short context prefix written for it at index time; the prefix helps search and is not part of the text handed to the reader.
+
 **Token budget**:
 The fixed amount of retrieved text, in tokens, handed to the reader for one question, filled with whole chunks in reranked order and never cut mid-chunk.
 _Avoid_: context window, context size, top-k
@@ -33,6 +39,9 @@ _Avoid_: capped results, realistic view
 **Fair view**:
 Results with no top-N cap, the token budget filled with as many whole chunks as fit, so every chunking gets the same amount of text.
 _Avoid_: uncapped view, budget-only view
+
+**Budget view**:
+Results with as many reranked whole chunks as fit the token budget, at most 20 per question.
 
 ### Retrieval
 
@@ -74,6 +83,12 @@ _Avoid_: context relevancy, precision@k
 A model call that decides pass or fail for one check on one generated answer; not used in v1, which scores retrieval only.
 _Avoid_: judge, evaluator, scorer
 
+**Answer score**:
+The dataset's standard answer metric for one question.
+
+**Reader**:
+The language model that answers a question from the retrieved chunks.
+
 ### Routing
 
 **Query type**:
@@ -95,3 +110,9 @@ _Avoid_: routing gain, oracle gap, lift
 **Routing decision**:
 The chunking a router picks for a question from the query text alone.
 _Avoid_: route, prediction, query classification
+
+**Search-all routing**:
+Search every chunking's index, fuse the lists, rerank the top of the fused list, and pack by budget, counting overlapping text only once.
+
+**Confidence routing**:
+Search each chunking's index separately and use the chunking whose top results the reranker scores highest.

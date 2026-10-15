@@ -70,7 +70,7 @@ At 1024 tokens, production view, comparing each pipeline's best single chunking 
 
 **Use today:** section-aware chunks with a token budget around 1024 tokens, hybrid search plus the reranker over the top 30. Either embedder works; their recalls are within a few thousandths.
 
-**v2:** index all seven chunkings and route each question to one from its text alone, judged where v1's gate was judged. The baseline is section-aware (0.4256 with bge-small), the ceiling is the perfect router (0.5552). v2 fixes its own success bar before it runs, keeps section-aware if no router clears it, and adds answer accuracy, LLM context prefixes and late chunking.
+**v2:** ask whether the headroom v1 found comes from routing between chunkings or from indexing one chunking better, measured end to end through a reader's answers. Label-free contenders - search-all routing, confidence routing, late chunking and contextual chunks - run against section-aware with the perfect router as the ceiling, on nomic-embed-text-v1.5 and judged in the budget view. The success bar and the tie-break between contenders are fixed before any run, section-aware stays if nothing clears them, and answer accuracy is measured with GLM 5.3 Flash as the reader. The settled decisions are recorded in [ADR 0005](docs/adr/0005-compare-routing-against-indexing-with-label-free-contenders-only.md) through [ADR 0009](docs/adr/0009-measure-answer-accuracy-with-glm-5-3-flash-as-the-reader.md).
 
 ## Limitations
 
