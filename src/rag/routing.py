@@ -147,7 +147,7 @@ def parse_headroom_config(raw: dict[str, Any]) -> HeadroomConfig:
             top_n=int(raw["top_n"]),
             chunkings=tuple(str(c) for c in raw["chunkings"]),
             interaction_reference=str(raw["interaction_reference"]),
-            production_line=str(gate["pipeline"]) if gate is not None else str(raw.get("pipeline", PRODUCTION_LINE)),
+            production_line=str(gate["pipeline"]) if gate is not None else PRODUCTION_LINE,
             view=str(raw.get("view", "production")),
             primary_budget=primary_budget,
             gate_datasets=tuple(str(d) for d in gate["datasets"]) if gate is not None else (),
