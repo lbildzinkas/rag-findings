@@ -331,12 +331,40 @@ def _short_gold(question: Question, qtype: str, tokenized: dict[str, TokenText])
     ]
 
 
+def _merged_spans(
+    packed_chunks: Sequence[Chunk], tokenized: Mapping[str, TokenText]
+) -> list[tuple[Chunk, int, int, int]]:
+    """The reader text of a packed list: one span per maximal sub-range of a
+    chunk's tokens no earlier chunk of the same document covered, in packed
+    (first-appearance) order, so no text repeats and the spans' tokens sum to
+    the union of the packed token ranges. Chunks that never overlap (every
+    single chunking, so the confidence router) contribute their whole span."""
+    rows: list[tuple[Chunk, int, int, int]] = []
+    packed_ranges: dict[str, list[tuple[int, int]]] = {}  # doc_id -> packed token ranges
+    for chunk in packed_chunks:
+        offsets = tokenized[chunk.doc_id].offsets
+        pos = chunk.token_start
+        for s, e in sorted(packed_ranges.setdefault(chunk.doc_id, [])):
+            if e <= pos:
+                continue
+            if s >= chunk.token_end:
+                break
+            if s > pos:
+                rows.append((chunk, offsets[pos][0], offsets[s - 1][1], s - pos))
+            pos = max(pos, e)
+        if pos < chunk.token_end:
+            rows.append((chunk, offsets[pos][0], offsets[chunk.token_end - 1][1], chunk.token_end - pos))
+        packed_ranges[chunk.doc_id].append(chunk.token_span)
+    return rows
+
+
 def _score_packed(
     cell: dict,
     question: Question,
     gold: list[tuple[int, ...]],
     short_gold: list[tuple[int, ...]],
     packed_chunks: list[Chunk],
+    tokenized: Mapping[str, TokenText],
     view: str,
     top_n: int,
     budget: int,
@@ -375,16 +403,16 @@ def _score_packed(
         picked_chunking=picked_chunking,
     )
     if (view, top_n, budget, scope) in exports:
-        for rank, chunk in enumerate(packed_chunks, start=1):
+        for rank, (chunk, start, end, tokens) in enumerate(_merged_spans(packed_chunks, tokenized), start=1):
             packed.add(
                 **{**cell, "doc_id": chunk.doc_id},
                 chunking=picked_chunking if picked_chunking is not None else chunking_of[id(chunk)],
                 view=view,
                 budget=budget,
                 rank=rank,
-                start=chunk.start,
-                end=chunk.end,
-                tokens=chunk.n_tokens,
+                start=start,
+                end=end,
+                tokens=tokens,
             )
 
 
@@ -479,6 +507,7 @@ def run_routers(
                             gold,
                             short_gold,
                             packed_chunks,
+                            tokenized,
                             view,
                             top_n,
                             budget,
@@ -513,6 +542,7 @@ def run_routers(
                             gold,
                             short_gold,
                             packed_chunks,
+                            tokenized,
                             view,
                             top_n,
                             budget,

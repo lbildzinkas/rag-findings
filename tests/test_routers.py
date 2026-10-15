@@ -26,6 +26,7 @@ from rag.paths import Paths
 from rag.routers import (
     ROUTED_SCHEMA,
     SEARCH_ALL,
+    _merged_spans,
     confidence_pick,
     fuse_by_span,
     load_routers_config,
@@ -35,6 +36,7 @@ from rag.routers import (
     run_routers,
     run_routers_table,
 )
+from rag.tokens import TokenText
 from tests.conftest import FakeEncoding, make_answer, make_paper, make_qa, write_split
 from tests.test_budget_view import BUDGET_GRID
 from tests.test_grid import P1, P2, P3, build_env
@@ -269,6 +271,28 @@ def test_single_chunking_scores_are_unchanged_under_merged_scoring():
     )
 
 
+def test_merged_spans_never_repeat_text_and_sum_to_the_union():
+    tokenized = {"d": TokenText("t" * 200, FakeEncoding()), "e": TokenText("u" * 20, FakeEncoding())}
+    a, b, bridge = _fchunk("d", 0, 30), _fchunk("d", 50, 70), _fchunk("d", 0, 100)
+    other, same = _fchunk("e", 0, 10), _fchunk("e", 0, 10)
+    rows = _merged_spans([a, b, bridge, other, same], tokenized)
+    assert [(c.doc_id, start, end, tokens) for c, start, end, tokens in rows] == [
+        ("d", 0, 30, 30),  # a
+        ("d", 50, 70, 20),  # b, disjoint from a
+        ("d", 30, 50, 20),  # bridge's first uncovered part
+        ("d", 70, 100, 30),  # bridge's second uncovered part
+        ("e", 0, 10, 10),  # other; `same` is wholly covered and adds nothing
+    ]
+    assert [c for c, *_ in rows] == [a, b, bridge, bridge, other]  # per-document first-appearance order
+    assert sum(tokens for _, _, _, tokens in rows) == union_token_count([a, b, bridge, other, same]) == 110
+
+
+def test_merged_spans_are_the_whole_chunks_when_nothing_overlaps():
+    tokenized = {"d": TokenText("t" * 60, FakeEncoding())}
+    x, y = _fchunk("d", 0, 30), _fchunk("d", 30, 60)
+    assert _merged_spans([y, x], tokenized) == [(y, 30, 60, 30), (x, 0, 30, 30)]
+
+
 # --- the confidence router's pick ------------------------------------------
 
 
@@ -311,8 +335,24 @@ def test_the_routers_run_writes_routed_and_packed_rows(tmp_path):
         assert row["view"] == "budget" and row["budget"] == 64 and row["scope"] == "collection"
         assert row["pipeline"] in (SEARCH_ALL, "confidence")
         assert row["chunking"] in SIZE_ORDER  # the representative's (or the pick's) chunking
-        assert 1 <= row["rank"] <= cfg.budget_top_n
-    assert {r["question_id"] for r in packed if r["pipeline"] == "confidence"}  # the pick's packed spans
+    by_question: dict[tuple[str, str], list[dict]] = {}
+    for row in packed:
+        by_question.setdefault((row["question_id"], row["pipeline"]), []).append(row)
+    assert {question for question, pipeline in by_question if pipeline == "confidence"}  # the pick's spans
+    retrieved = {
+        (r["question_id"], r["pipeline"]): r["retrieved_tokens"]
+        for r in rows
+        if r["view"] == "budget" and r["budget"] == 64
+    }
+    for (question, pipeline), spans in by_question.items():
+        spans.sort(key=lambda r: r["rank"])
+        assert [r["rank"] for r in spans] == list(range(1, len(spans) + 1))  # the reader's rank contract
+        covered: dict[str, list[tuple[int, int]]] = {}
+        for span in spans:  # no text repeats within a document
+            ranges = covered.setdefault(span["doc_id"], [])
+            assert all(span["end"] <= s or span["start"] >= e for s, e in ranges)
+            ranges.append((span["start"], span["end"]))
+        assert sum(r["tokens"] for r in spans) == retrieved[(question, pipeline)]  # the packed union
 
     manifest = json.loads((outcome.run_dir / "manifest.json").read_text())
     assert manifest["counts"]["questions"] == 4
