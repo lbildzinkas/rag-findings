@@ -1,0 +1,5 @@
+# Use nomic-embed-text-v1.5 as v2's primary embedder
+
+v1 ran two embedders, bge-small-en-v1.5 and nomic-embed-text-v1.5, and their recalls stayed within a few thousandths of each other, moving no conclusion. bge-small reads at most 512 tokens and embeds longer chunks truncated; nomic reads 8192. v2's late-chunking contenders embed the whole document before cutting the token embeddings, and QASPER papers and Natural Questions pages run far past 512 tokens, so with bge-small the surroundings that late chunking exists to carry would be truncated away.
+
+So nomic-embed-text-v1.5 is v2's primary embedder; bge-small stays what v1 ran with. Documents longer than nomic's 8192-token input are embedded in 8192-token windows. The alternatives were keeping bge-small primary and dropping late chunking, which would cut a contender to suit a model; truncating whole documents to 512 tokens before embedding, which removes exactly the context late chunking is meant to preserve; and running every contender with both embedders, doubling the runs to reconfirm a difference v1 already bounded at a few thousandths.
