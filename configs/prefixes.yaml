@@ -1,0 +1,21 @@
+kind: prefixes
+# every fixed-256 chunk of QASPER dev + test and the Natural Questions subset
+dataset:
+  name: pooled
+  sources:
+    - {name: qasper, splits: [dev, test]}
+    - {name: nq, splits: [dev]}
+chunking: {name: fixed-256, method: fixed, chunk_tokens: 256}
+# Qwen3-8B, 4-bit MLX weights, through mlx-lm: greedy, thinking off
+model:
+  id: mlx-community/Qwen3-8B-4bit
+  revision: 545dc4251c05440727734bcd94334791f6ab0192
+# the contextual-retrieval prompt; the run fails if the file stops matching this hash
+prompt: configs/prefix-prompt.txt
+prompt_sha256: 1f90604cbe2d345af3d3eb34108a12fb47626e6416e5dbdf9c39786f77bfef44
+# a document longer than this (cl100k tokens) is given as the window of whole chunks that holds the chunk
+context_tokens: 8192
+max_new_tokens: 120
+batch_size: 6
+seed: 0  # the --estimate sample
+manifest: results/prefixes/fixed-256-qwen3-8b.json

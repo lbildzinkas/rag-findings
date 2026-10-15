@@ -27,6 +27,12 @@ dev = [
     "pytest>=8.0",
     "ruff>=0.14",
 ]
+# `rag prefixes` only, on Apple silicon; mlx-lm 0.29.1 is the newest release
+# that accepts transformers 4.x (0.30 and later need transformers 5)
+prefixes = [
+    "mlx==0.30.1 ; sys_platform == 'darwin'",
+    "mlx-lm==0.29.1 ; sys_platform == 'darwin'",
+]
 
 [build-system]
 requires = ["hatchling"]

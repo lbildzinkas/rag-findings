@@ -221,6 +221,20 @@ uv run rag answers configs/v2/answers.yaml --dry-run
 
 `answers --dry-run` assembles every reader setup from the runs' `packed.parquet` at the budget view's primary cell (1024 tokens, collection search, nomic): section-aware, the search-all and confidence routers, late-128 and late-256, contextual-256 and its prefix-in-budget side variant, the oracle router (per question, the chunking with the highest recall, ties to the smaller chunk) and the no-retrieval floor. It renders the fixed reader prompt (whose template hash is recorded before any answer exists), reports prompt token counts per setup and dataset without calling a model, and fails when any prompt exceeds the budget plus the template. Setups whose packed spans have not landed yet (their own tickets deliver them) are reported as pending. The answer scoring (answer F1 for QASPER, short-answer match with contains-a-reference as a secondary column for NQ precise, token F1 for NQ context, all after SQuAD-style normalisation), the reader interface with its SQLite response cache under `data/`, and the R14 scaffold (answer score per setup and dataset, document-clustered CIs, the difference from section-aware) are exercised by the tests; the reader run fills the table.
 
+### Context prefixes (v2)
+
+The index-time half of contextual chunks ([ADR 0005](docs/adr/0005-compare-routing-against-indexing-with-label-free-contenders-only.md)): a local model writes one short context prefix for every fixed-256 chunk of QASPER dev + test and the Natural Questions subset. It runs on Apple silicon only, through mlx-lm in the optional `prefixes` dependency group (tests use a fake writer).
+
+```sh
+uv run --group prefixes rag prefixes configs/prefixes.yaml --estimate 20   # 20 seeded documents per dataset, then the projected hours
+uv run --group prefixes rag prefixes configs/prefixes.yaml                 # every chunk; about a day on an M4 Max
+```
+
+- **Model and prompt.** Qwen3-8B (4-bit MLX weights at a pinned revision) decodes greedily with thinking off, at most 120 new tokens per prefix. The prompt is the committed contextual-retrieval prompt [`configs/prefix-prompt.txt`](configs/prefix-prompt.txt), whose sha256 the config pins.
+- **Document context.** A document of at most 8192 cl100k tokens is given whole. A longer one is cut into the fewest near-equal windows of whole chunks that fit, and each chunk gets the window that holds it. Each document or window is prefilled once, and its chunks are generated in batches of 6.
+- **Store.** Prefixes go to the git-ignored `data/prefixes/prefixes.sqlite`, keyed by prefix model and revision, prompt hash, document source hash and chunk span. Each document commits as one transaction, so an interrupted run resumes at the next document and never rewrites a stored prefix.
+- **Manifest.** The committed manifest [`results/prefixes/fixed-256-qwen3-8b.json`](results/prefixes) records the counts, the prefix-length distribution, the prefixes cut at 120 tokens, the wall time and a sha256 digest of the stored prefixes, never their text.
+
 ## Data, models and licences
 
 No dataset text is committed; the repository holds only identifiers, character offsets, hashes, scores and result tables.
@@ -237,5 +251,6 @@ No dataset text is committed; the repository holds only identifiers, character o
 | embedder | [BAAI/bge-small-en-v1.5](https://huggingface.co/BAAI/bge-small-en-v1.5) (Beijing Academy of Artificial Intelligence) | 512 tokens | MIT |
 | embedder | [nomic-ai/nomic-embed-text-v1.5](https://huggingface.co/nomic-ai/nomic-embed-text-v1.5) (Nomic AI) | 8192 tokens | Apache-2.0 |
 | reranker | [Alibaba-NLP/gte-reranker-modernbert-base](https://huggingface.co/Alibaba-NLP/gte-reranker-modernbert-base) (Alibaba-NLP) | n/a | Apache-2.0 |
+| context prefixes (v2) | [mlx-community/Qwen3-8B-4bit](https://huggingface.co/mlx-community/Qwen3-8B-4bit) (Qwen3-8B by the Qwen team, Alibaba Cloud; 4-bit MLX conversion) | n/a | Apache-2.0 |
 
-The pinned revisions are listed in the write-up's [data, models and licences section](chunking/2026-10-14-v1-results.md#data-models-and-licences).
+The v1 models' pinned revisions are listed in the write-up's [data, models and licences section](chunking/2026-10-14-v1-results.md#data-models-and-licences); the prefix model's is in [`configs/prefixes.yaml`](configs/prefixes.yaml).
