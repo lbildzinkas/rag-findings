@@ -143,3 +143,4 @@ top_n: 8
 
 Query types are assigned from the labels: for Natural Questions, short answer means precise and long-answer-only means context; for QASPER, precise means every usable annotation cites one passage, context that every one cites several and mixed otherwise (only that rule produces mixed questions, which count in the means of R2 but not in this contrast).
 n/a: a fixed chunking whose chunk is bigger than the budget is not scored at that budget.
+Re-run regression: the fixed-512@512 and section-aware@512 context cells and the fixed-1024@1024 precise cell deviate from v1's grid run by one question each; see `v2-baseline-regression.md`.

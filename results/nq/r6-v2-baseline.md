@@ -146,3 +146,4 @@ The same packing as R2 (production view: top-N cap 8; fair view: no cap) scored 
 Precise questions whose short answers are yes or no only have no short-answer span and stay out of these means; they count in R2 and R3.
 n/a: a fixed chunking whose chunk is bigger than the budget is not scored at that budget.
 §: production line only; for at least one question, packing went past the reranked top 30 into the unreranked tail, which continues in fused (hybrid) order.
+Re-run regression: fixed-1024@1024 deviates from v1's grid run by one question; see `v2-baseline-regression.md`.

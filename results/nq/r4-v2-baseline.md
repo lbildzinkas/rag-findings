@@ -100,3 +100,4 @@ top_n: 8
 | small-to-big | 0.5630 | 0.8560 | 0.9210 | 0.5625 | 0.8550 | 0.9200 |
 
 Units are whole retrieved chunks with no token budget (small-to-big: the distinct parents of the matched children). A unit is relevant when it overlaps the labelled spans; hit@k is whether any of the top k is relevant, recall@k the share of the document's relevant units in the top k, best annotator kept.
+Re-run regression: hit@1 and recall@1 of fixed-512, fixed-1024 and section-aware deviate from v1's grid run by one question each (hit@5 and beyond unchanged); see `v2-baseline-regression.md`.
