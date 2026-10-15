@@ -20,7 +20,6 @@ setups:
   - name: section-aware
     runs: {qasper: v2-baseline, nq: v2-baseline}
     chunking: section-aware
-  # the routers' packed spans arrive with their own run (issue #21)
   - name: search-all
     runs: {qasper: v2-routers, nq: v2-routers}
     pipeline: search-all

@@ -40,6 +40,7 @@ class Ranking:
     embedder: str | None  # None for BM25
     ranked: list[Chunk]
     reranked: int | None = None  # leading chunks ordered by the reranker (None: no reranker); the tail follows
+    scores: tuple[float, ...] | None = None  # the reranker's scores of the head, in ranked order (None: none kept)
 
 
 @dataclass
@@ -186,7 +187,16 @@ class Retriever:
             scores = self._rerank_scores(question.text, [fused[: cfg.rerank_depth] for _, _, fused in to_rerank])
             for key, embedder, fused in to_rerank:
                 ranked = rerank_head(fused, cfg.rerank_depth, lambda head: [scores[self.span(c)] for c in head])
-                out[key].append(Ranking(PRODUCTION_LINE, embedder, ranked, reranked=min(cfg.rerank_depth, len(fused))))
+                head_scores = tuple(scores[self.span(c)] for c in ranked[: min(cfg.rerank_depth, len(fused))])
+                out[key].append(
+                    Ranking(
+                        PRODUCTION_LINE,
+                        embedder,
+                        ranked,
+                        reranked=min(cfg.rerank_depth, len(fused)),
+                        scores=head_scores,
+                    )
+                )
         order = {p: i for i, p in enumerate(PIPELINES)}
         embedder_order = {e: i for i, e in enumerate(cfg.embedders)}
         for key, rankings in out.items():

@@ -188,6 +188,17 @@ It takes seconds and regenerates the committed tables under `results/routing/`, 
 
 The committed tables read the QASPER and Natural Questions grid runs (`runs: [qasper/grid, nq/grid]`), pooled per question across the two runs, each dataset's documents resampled as its own clusters.
 
+### The v2 routers
+
+The two label-free routers of [ADR 0005](docs/adr/0005-compare-routing-against-indexing-with-label-free-contenders-only.md), computed per question from the seven chunkings' rankings with no labels, over the v2 baseline's settings (production line, nomic, collection search). **Search-all routing** fuses the seven chunkings' hybrid lists by reciprocal rank fusion (k = 60) keyed by document and character span - identical text from two chunkings is one item - reranks the fused top 50 and packs by budget counting overlapping text once, small-to-big children keeping v1's parent rule. **Confidence routing** uses, per question, the chunking whose reranked top result scores highest (the top-1 reranker score of each chunking's reranked top 30), ties going to the smaller chunk, and records the pick per question. Both are scored over merged text: recall and precision count every retrieved token once, the union of the packed token ranges, so the single chunkings' scores are unchanged.
+
+```sh
+uv run rag run configs/v2/qasper-routers.yaml && uv run rag run configs/v2/nq-routers.yaml
+uv run rag routers configs/v2/routers.yaml
+```
+
+The runs (`kind: routers`) write `routed.parquet` (one row per question x router x view x budget, the results' columns plus `picked_chunking`) and, for the exported budget-view 1024-token cell, `packed.parquet` under pipelines `search-all` and `confidence`, which the reader stage's setups read. `rag routers` reads the routers runs next to the v2 baseline runs (no retrieval runs) and regenerates the committed `results/{qasper,nq,pooled}/r11-v2-routers.md` (R11) byte-identically for the same runs: recall and precision of both routers at every budget in the budget and production views, next to section-aware and the oracle router, and confidence routing's picks per chunking.
+
 ### Reader sample and the answers stage
 
 The v2 reader stage's offline half (ADR 0009). `reader-sample` draws the 1,000-question reader sample - 500 QASPER questions filled by whole papers in seeded order (a paper that would overshoot is skipped), 250 precise and 250 context Natural Questions pages - and commits it as ids only (`configs/v2/reader-sample.txt`, reproducible from its seed; `--check` verifies the committed list against a fresh draw). The loaders also carry each question's reference answers (QASPER: each answering annotator's extractive spans joined with ", ", free-form answer, or "Yes"/"No"; NQ precise: the short-answer texts and yes/no answers; NQ context: the long-answer paragraph) - a field the retrieval path never reads.

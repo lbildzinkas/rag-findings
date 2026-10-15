@@ -1,0 +1,15 @@
+kind: routers-table
+# the routers runs, one per dataset, and the v2 baseline grid runs whose
+# per-question results give the baseline chunking and the oracle router
+runs: [qasper/v2-routers, nq/v2-routers]
+baselines: [qasper/v2-baseline, nq/v2-baseline]
+scope: collection
+pipeline: hybrid-rerank
+embedder: nomic
+# smallest chunk first: the oracle router's tie-break order
+chunkings: [fixed-64, fixed-128, fixed-256, fixed-512, section-aware, small-to-big, fixed-1024]
+# the single chunking the routers are measured against
+baseline_chunking: section-aware
+top_n: 8
+budget_top_n: 20
+run_name: v2-routers

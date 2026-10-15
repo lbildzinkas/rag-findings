@@ -9,9 +9,12 @@ question's document:
 
 Retrieved chunks from other documents still count toward precision's
 denominator (they are retrieved text) but cannot overlap the gold spans.
-Each question is scored against each annotator's spans and the annotator
-with the highest recall is kept (QASPER convention); ties go to the
-earlier annotator, then the higher precision.
+When the packed chunks overlap (the v2 routers mix chunkings), precision's
+denominator counts every retrieved token once: pass `union_token_count`
+to `score_question` as the retrieved-token count. Each question is
+scored against each annotator's spans and the annotator with the highest
+recall is kept (QASPER convention); ties go to the earlier annotator,
+then the higher precision.
 
 Fixed-k measures (for comparison with the literature only) work on whole
 retrieved units, with no token budget: a unit is relevant when it
@@ -56,15 +59,31 @@ class QuestionScore:
     gold_tokens: int
 
 
+def union_token_count(packed: Sequence[Chunk]) -> int:
+    """Tokens covered by the packed chunks, counting overlapping text once:
+    the union of their token ranges per document (chunks of different
+    documents never overlap). Single chunkings never overlap, so this
+    equals the sum of their chunks' tokens there."""
+    by_doc: dict[str, list[tuple[int, int]]] = {}
+    for chunk in packed:
+        by_doc.setdefault(chunk.doc_id, []).append(chunk.token_span)
+    return sum(e - s for ranges in by_doc.values() for s, e in _merged(ranges))
+
+
 def score_question(
     gold_sets: Sequence[Collection[int]],
     packed: Sequence[Chunk],
     gold_doc_id: str,
+    retrieved: int | None = None,
 ) -> QuestionScore:
-    """Score one question: best annotator by recall, then precision."""
+    """Score one question: best annotator by recall, then precision.
+
+    `retrieved` overrides the retrieved-token count (the default sums the
+    packed chunks' tokens); the routers pass the union of the packed token
+    ranges, so overlapping chunks count once in precision's denominator."""
     if not gold_sets:
         raise ValueError("a question needs at least one annotator's spans")
-    retrieved_tokens = sum(c.n_tokens for c in packed)
+    retrieved_tokens = sum(c.n_tokens for c in packed) if retrieved is None else retrieved
     ranges = [(c.token_start, c.token_end) for c in packed if c.doc_id == gold_doc_id]
 
     best: QuestionScore | None = None

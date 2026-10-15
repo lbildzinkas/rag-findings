@@ -1,5 +1,5 @@
 """Command line entry point: `rag setup`, `rag sample`, `rag reader-sample`,
-`rag run <config>`, `rag headroom <config>`, `rag answers <config>` and `rag writeup`."""
+`rag run <config>`, `rag headroom <config>`, `rag answers <config>`, `rag routers <config>` and `rag writeup`."""
 
 from __future__ import annotations
 
@@ -99,7 +99,9 @@ def main(argv: list[str] | None = None) -> int:
         help="project root holding data/ (default: current directory)",
     )
 
-    run_parser = sub.add_parser("run", help="run a retrieval eval (one cell, or a grid with `kind: grid`)")
+    run_parser = sub.add_parser(
+        "run", help="run a retrieval eval (one cell, a grid with `kind: grid`, or the v2 routers with `kind: routers`)"
+    )
     run_parser.add_argument("config", type=Path, help="path to the run config YAML")
     run_parser.add_argument(
         "--root",
@@ -111,7 +113,7 @@ def main(argv: list[str] | None = None) -> int:
         type=int,
         default=None,
         metavar="N",
-        help="grid runs only: a seeded sample of N papers, with outputs and tables under runs/<dataset>/<run_name>-sampleN/",
+        help="grid and routers runs: a seeded sample of N papers, with outputs under runs/<dataset>/<run_name>-sampleN/",
     )
 
     headroom_parser = sub.add_parser(
@@ -139,6 +141,17 @@ def main(argv: list[str] | None = None) -> int:
         "--root",
         default=None,
         help="project root holding data/, runs/ and results/ (default: current directory)",
+    )
+
+    routers_parser = sub.add_parser(
+        "routers",
+        help="the v2 routers' result table R11, from the routers runs and the v2 baseline runs",
+    )
+    routers_parser.add_argument("config", type=Path, help="path to the routers table config YAML")
+    routers_parser.add_argument(
+        "--root",
+        default=None,
+        help="project root holding runs/ and results/ (default: current directory)",
     )
 
     writeup_parser = sub.add_parser(
@@ -193,8 +206,16 @@ def main(argv: list[str] | None = None) -> int:
         return 0
 
     if args.command == "run":
+        import yaml
+
         from .config import GridConfig, load_any_config
 
+        raw = yaml.safe_load(args.config.read_text(encoding="utf-8"))
+        if isinstance(raw, dict) and raw.get("kind") == "routers":
+            from .routers import load_routers_config, run_routers
+
+            run_routers(load_routers_config(args.config), paths, sample=args.sample)
+            return 0
         cfg = load_any_config(args.config)
         if isinstance(cfg, GridConfig):
             from .grid import run_grid
@@ -202,7 +223,7 @@ def main(argv: list[str] | None = None) -> int:
             run_grid(cfg, paths, sample=args.sample)
             return 0
         if args.sample is not None:
-            parser.error("--sample applies to grid runs only")
+            parser.error("--sample applies to grid and routers runs only")
         from .run import run
 
         run(args.config, paths)
@@ -258,6 +279,12 @@ def main(argv: list[str] | None = None) -> int:
         report = dry_run(cfg, paths)
         print_dry_run(cfg, report)
         return 1 if report["over_budget_prompts"] else 0
+
+    if args.command == "routers":
+        from .routers import load_routers_table_config, run_routers_table
+
+        run_routers_table(load_routers_table_config(args.config), paths)
+        return 0
 
     if args.command == "writeup":
         from .writeup import check, write
