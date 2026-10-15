@@ -15,7 +15,9 @@ prompt cache.
 
 Store. Prefixes live in a SQLite table under data/ (git-ignored), keyed by
 prefix model and revision, prompt hash, document source hash and chunk
-span, so any later run can find a chunk's prefix from its span. A
+span, so any later run can find a chunk's prefix from its span (and
+documents with the same text, such as a page several Natural Questions
+questions share, share their prefixes). A
 document's records commit in one transaction with its row in
 `prefix_documents`, so an interrupted run resumes at the first document
 without that row and never rewrites a stored prefix. The committed
@@ -65,6 +67,11 @@ CREATE TABLE IF NOT EXISTS prefix_documents (
     seconds REAL NOT NULL, PRIMARY KEY (model, prompt_hash, doc_hash)
 ) WITHOUT ROWID;
 """
+
+
+def _log(line: str) -> None:
+    """Progress lines reach a redirected log as they happen."""
+    print(line, flush=True)
 
 
 @dataclass(frozen=True)
@@ -213,19 +220,26 @@ class DocumentChunks:
 def chunk_documents(
     documents_by_dataset: dict[str, dict[str, Document]], spec: ChunkingSpec, encoding=None
 ) -> list[DocumentChunks]:
-    """Every document's chunks under `spec`, by dataset then document id; a
-    document whose text another one already has is written once."""
+    """Every document's chunks under `spec`, by dataset then document id."""
     out: list[DocumentChunks] = []
-    seen: set[str] = set()
     for dataset in sorted(documents_by_dataset):
         documents = documents_by_dataset[dataset]
         for doc_id in sorted(documents):
             doc = documents[doc_id]
-            if doc.source_hash in seen:
-                continue
-            seen.add(doc.source_hash)
             chunks = fixed_windows(doc, TokenText(doc.text, encoding), spec.chunk_tokens)
             out.append(DocumentChunks(dataset, doc, tuple(chunks)))
+    return out
+
+
+def distinct(items: Sequence[DocumentChunks]) -> list[DocumentChunks]:
+    """The first document of each source text: documents with the same text
+    (several Natural Questions questions share a page) share their prefixes."""
+    seen: set[str] = set()
+    out: list[DocumentChunks] = []
+    for item in items:
+        if item.doc.source_hash not in seen:
+            seen.add(item.doc.source_hash)
+            out.append(item)
     return out
 
 
@@ -301,10 +315,11 @@ def write_prefixes(
     writer: PrefixWriter,
     cfg: PrefixConfig,
     prompt_hash: str,
-    log: Callable[[str], None] = print,
+    log: Callable[[str], None] = _log,
 ) -> int:
     """Write and commit, one document at a time, the prefixes of every
-    document not yet finished; returns the number of documents written."""
+    document text not yet finished; returns the number of documents written."""
+    items = distinct(items)
     done = store.done(writer.model_key, prompt_hash)
     todo = [item for item in items if item.doc.source_hash not in done]
     total_chunks = sum(len(item.chunks) for item in items)
@@ -327,8 +342,9 @@ def write_prefixes(
 
 
 def estimate_sample(items: Sequence[DocumentChunks], n: int, seed: int) -> list[DocumentChunks]:
-    """`n` seeded documents of each dataset."""
+    """`n` seeded documents of each dataset, distinct texts only."""
     out: list[DocumentChunks] = []
+    items = distinct(items)
     for dataset in sorted({item.dataset for item in items}):
         pool = [item for item in items if item.dataset == dataset]
         out.extend(random.Random(f"{seed}:{dataset}").sample(pool, min(n, len(pool))))
@@ -339,8 +355,10 @@ def projected_hours(
     items: Sequence[DocumentChunks], sample: Sequence[DocumentChunks], done: dict[str, tuple[int, float]]
 ) -> dict[str, dict[str, float]]:
     """Per dataset: seconds per chunk over the sample, and the projected
-    hours of the full run and of what is not yet stored."""
+    hours of the full run and of what is not yet stored, over the chunks
+    of distinct texts (the prefixes to write)."""
     out: dict[str, dict[str, float]] = {}
+    items = distinct(items)
     for dataset in sorted({item.dataset for item in items}):
         picked = [done[item.doc.source_hash] for item in sample if item.dataset == dataset]
         per_chunk = sum(s for _, s in picked) / sum(n for n, _ in picked)
@@ -373,9 +391,12 @@ def build_manifest(
     runtime: dict[str, str],
 ) -> dict[str, Any]:
     """Counts, prefix-length statistics (in the prefix model's tokens), the
-    chunks cut at the new-token limit or left without a prefix, wall time
-    and a digest of every stored prefix; no prefix text."""
+    chunks cut at the new-token limit or left without a prefix (by document
+    id and chunk index), wall time and a digest of every stored prefix; no
+    prefix text. Lengths, wall time and the digest count each distinct
+    text's prefixes once; the chunk counts cover every document."""
     done = store.done(cfg.model_key, prompt_hash)
+    firsts = {id(item) for item in distinct(items)}
     digest = hashlib.sha256()
     datasets: dict[str, dict[str, Any]] = {}
     truncated: list[dict[str, Any]] = []
@@ -384,10 +405,11 @@ def build_manifest(
     for dataset in sorted({item.dataset for item in items}):
         pool = [item for item in items if item.dataset == dataset]
         lengths: list[int] = []
-        windowed = 0
-        for item in sorted(pool, key=lambda it: it.doc.source_hash):
+        with_prefix = windowed = 0
+        for item in sorted(pool, key=lambda it: (it.doc.source_hash, it.doc.doc_id)):
             stored = store.prefixes(cfg.model_key, prompt_hash, item.doc.source_hash)
-            windowed += len(context_windows(item.chunks, cfg.context_tokens)) > 1
+            is_first = id(item) in firsts
+            windowed += is_first and len(context_windows(item.chunks, cfg.context_tokens)) > 1
             for chunk in item.chunks:
                 record = stored.get((chunk.start, chunk.end))
                 where = {"dataset": dataset, "doc_id": item.doc.doc_id, "chunk": chunk.index}
@@ -395,18 +417,23 @@ def build_manifest(
                     missing.append(where)
                     continue
                 text, n_tokens, cut = record
-                lengths.append(n_tokens)
+                with_prefix += 1
                 if cut:
                     truncated.append(where)
-                digest.update(f"{item.doc.source_hash}\t{chunk.start}\t{chunk.end}\t{text}\n".encode())
+                if is_first:
+                    lengths.append(n_tokens)
+                    digest.update(f"{item.doc.source_hash}\t{chunk.start}\t{chunk.end}\t{text}\n".encode())
+        written = [item for item in pool if id(item) in firsts]
         datasets[dataset] = {
             "documents": len(pool),
+            "distinct_documents": len(written),
             "documents_in_windows": windowed,
             "chunks": sum(len(item.chunks) for item in pool),
-            "chunks_with_prefix": len(lengths),
+            "chunks_with_prefix": with_prefix,
+            "distinct_prefixes": len(lengths),
             "truncated": sum(1 for t in truncated if t["dataset"] == dataset),
             "prefix_tokens": _length_stats(lengths),
-            "wall_hours": round(sum(done.get(item.doc.source_hash, (0, 0.0))[1] for item in pool) / 3600, 3),
+            "wall_hours": round(sum(done.get(item.doc.source_hash, (0, 0.0))[1] for item in written) / 3600, 3),
         }
         all_lengths.extend(lengths)
     return {
@@ -417,7 +444,8 @@ def build_manifest(
         "store": {"table": "prefixes", "key": ["model", "prompt_hash", "doc_hash", "start", "end"]},
         "datasets": datasets,
         "chunks": sum(d["chunks"] for d in datasets.values()),
-        "chunks_with_prefix": len(all_lengths),
+        "chunks_with_prefix": sum(d["chunks_with_prefix"] for d in datasets.values()),
+        "distinct_prefixes": len(all_lengths),
         "prefix_tokens": _length_stats(all_lengths),
         "truncated": truncated,
         "missing": missing,
@@ -450,7 +478,7 @@ def run_prefixes(
     writer: PrefixWriter | None = None,
     estimate: int | None = None,
     encoding=None,
-    log: Callable[[str], None] = print,
+    log: Callable[[str], None] = _log,
 ) -> dict[str, Any]:
     """Write every missing prefix (or, with `estimate`, a seeded sample's
     and the projected hours), then the manifest; returns the manifest or
@@ -486,7 +514,8 @@ def run_prefixes(
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(json.dumps(manifest, sort_keys=True, indent=2) + "\n", encoding="utf-8")
     log(
-        f"{manifest['chunks_with_prefix']}/{manifest['chunks']} chunks have a prefix; "
+        f"{manifest['chunks_with_prefix']}/{manifest['chunks']} chunks have a prefix "
+        f"({manifest['distinct_prefixes']} distinct); "
         f"{len(manifest['truncated'])} cut at {cfg.max_new_tokens} tokens; manifest {cfg.manifest}"
     )
     if manifest["missing"]:

@@ -297,3 +297,18 @@ def _fake_token_text(text, _encoding=None):
     from rag.tokens import TokenText
 
     return TokenText(text, FakeEncoding())
+
+
+def test_documents_with_the_same_text_share_their_prefixes(tmp_path):
+    config_path = build_env(tmp_path)
+    dev_path = tmp_path / "data" / "qasper" / "qasper-dev-v0.3.json"
+    dev = json.loads(dev_path.read_text(encoding="utf-8"))
+    dev["paperD"] = {**dev["paperA"], "title": "Paper paperD"}  # the same canonical text as paperA
+    write_split(dev_path, dev)
+    writer = FakeWriter()
+    manifest = _run(config_path, tmp_path, writer)
+    qasper = manifest["datasets"]["qasper"]
+    assert (qasper["documents"], qasper["distinct_documents"]) == (4, 3)
+    assert qasper["chunks_with_prefix"] == qasper["chunks"] > qasper["distinct_prefixes"] == len(_rows(tmp_path))
+    assert manifest["missing"] == []
+    assert len(writer.calls) == 4  # paperA (one window), paperB (two windows), paperC; never paperD
