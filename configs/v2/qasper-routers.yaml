@@ -1,0 +1,34 @@
+kind: routers
+dataset:
+  name: qasper
+  splits: [dev, test]
+# the two label-free routers of ADR 0005 over the v2 baseline's chunkings:
+# the production line (hybrid-rerank) with nomic only (ADR 0007)
+embedders: [nomic]
+rrf_k: 60
+# the confidence router reads the top-1 reranker score of each chunking's
+# reranked top 30
+rerank_depth: 30
+# search-all reranks the fused top 50
+fused_rerank_depth: 50
+chunkings:
+  - {name: fixed-64, method: fixed, chunk_tokens: 64}
+  - {name: fixed-128, method: fixed, chunk_tokens: 128}
+  - {name: fixed-256, method: fixed, chunk_tokens: 256}
+  - {name: fixed-512, method: fixed, chunk_tokens: 512}
+  - {name: fixed-1024, method: fixed, chunk_tokens: 1024}
+  - {name: section-aware, method: section_aware, max_tokens: 512}
+  - {name: small-to-big, method: small_to_big, max_tokens: 512, child_tokens: 128}
+budgets: [128, 256, 512, 1024, 2048, 4096, 8192]
+top_n: 8
+budget_top_n: 20
+scopes: [collection]
+search_depth: 1000
+seed: 0
+run_name: v2-routers
+# smallest chunk first: the oracle router's size order, which breaks the
+# confidence router's ties
+size_order: [fixed-64, fixed-128, fixed-256, fixed-512, section-aware, small-to-big, fixed-1024]
+# packed spans for the reader (v2's primary cell: budget view, 1024 tokens)
+export_packed:
+  - {view: budget, budget: 1024, scope: collection}
