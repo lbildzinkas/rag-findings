@@ -23,6 +23,9 @@ from .prefixes import Prefix, PrefixConfig, PromptTemplate
 _WEIGHT_FILES = ["*.json", "*.txt", "model.safetensors"]
 _SENTINEL = "\x00rag-chunk\x00"
 _PREFILL_STEP = 2048
+# mlx keeps freed buffers for reuse; uncapped they reach about 20 GiB on top
+# of the ~14-19 GiB in use, close to the GPU's working-set limit on a 36 GB Mac
+_BUFFER_CACHE_BYTES = 2 * 2**30
 
 
 def load_writer(cfg: PrefixConfig, data_dir: Path, prompt: PromptTemplate) -> MlxPrefixWriter:
@@ -41,8 +44,10 @@ def load_writer(cfg: PrefixConfig, data_dir: Path, prompt: PromptTemplate) -> Ml
 
 class MlxPrefixWriter:
     def __init__(self, model_key: str, path: Path, prompt: PromptTemplate, max_new_tokens: int, batch_size: int):
+        import mlx.core as mx
         from mlx_lm import load
 
+        mx.set_cache_limit(_BUFFER_CACHE_BYTES)
         self.model_key = model_key
         self.prompt = prompt
         self.max_new_tokens = max_new_tokens

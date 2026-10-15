@@ -28,9 +28,11 @@ dev = [
     "ruff>=0.14",
 ]
 # `rag prefixes` only, on Apple silicon; mlx-lm 0.29.1 is the newest release
-# that accepts transformers 4.x (0.30 and later need transformers 5)
+# that accepts transformers 4.x (0.30 and later need transformers 5); mlx
+# 0.30.1 runs out of GPU memory on a batch mixing short and long prompts
+# over a cache past 8192 tokens, 0.31.1 does not
 prefixes = [
-    "mlx==0.30.1 ; sys_platform == 'darwin'",
+    "mlx==0.31.1 ; sys_platform == 'darwin'",
     "mlx-lm==0.29.1 ; sys_platform == 'darwin'",
 ]
 
