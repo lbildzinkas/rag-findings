@@ -35,9 +35,9 @@ from rag.routers import (
     run_routers,
     run_routers_table,
 )
-from tests.conftest import FakeEncoding
+from tests.conftest import FakeEncoding, make_answer, make_paper, make_qa, write_split
 from tests.test_budget_view import BUDGET_GRID
-from tests.test_grid import build_env
+from tests.test_grid import P1, P2, P3, build_env
 from tests.test_production import FakeModels
 
 SIZE_ORDER = ["fixed-16", "fixed-32", "fixed-64", "section-aware", "small-to-big"]
@@ -127,6 +127,26 @@ def test_fusion_breaks_ties_by_first_appearance_across_chunkings():
     x, y = _fchunk("d", 0, 10), _fchunk("d", 20, 30)
     fused = fuse_by_span([[x], [y]], _span, ["A", "B"])
     assert [c.start for c, _ in fused] == [0, 20]
+
+
+def test_fusion_keeps_two_byte_identical_documents_separate():
+    # two documents with byte-identical text are two retrieval items: keyed by
+    # document and span, only same-document spans merge into one item
+    p1, p2 = _fchunk("d1", 0, 10), _fchunk("d2", 0, 10)
+    p1_again = _fchunk("d1", 0, 10)  # the other chunking's chunk over the same span
+    fused = fuse_by_span([[p1, p2], [p1_again]], _span, ["A", "B"])
+    assert [(c.doc_id, name) for c, name in fused] == [("d1", "A"), ("d2", "A")]
+
+
+def test_fusion_honours_the_configs_rrf_k():
+    # x is rank 1 of one chunking; y is rank 2 of one and rank 3 of another.
+    # With k = 60 y's two small contributions win, with k = 0 x's single
+    # rank 1 does.
+    x, y = _fchunk("d", 0, 10), _fchunk("d", 20, 30)
+    a, e, f = _fchunk("d", 40, 50), _fchunk("d", 60, 70), _fchunk("d", 80, 90)
+    rankings, names = [[x], [a, y], [e, f, y]], ["A", "B", "C"]
+    assert [c.start for c, _ in fuse_by_span(rankings, _span, names, 60)] == [20, 0, 40, 60, 80]
+    assert [c.start for c, _ in fuse_by_span(rankings, _span, names, 0)] == [0, 40, 60, 20, 80]
 
 
 # --- overlap-aware packing -------------------------------------------------
@@ -301,6 +321,62 @@ def test_the_routers_run_writes_routed_and_packed_rows(tmp_path):
     assert manifest["embeddings"]["queries_embedded"] == 4
     assert manifest["schema_version"] == "1"
     assert sum(outcome.picks.values()) == 4
+
+
+def test_search_all_reaches_both_byte_identical_documents(tmp_path):
+    """Two byte-identical pages are two documents: the fusion keys items by
+    document and span, so both pages stay retrieval items and the copy's gold
+    page is reachable (keyed by text, only one page's chunks would survive
+    fusion and the copy's question would recall nothing)."""
+
+    def paper(doc_id: str, question_id: str) -> dict:
+        return make_paper(
+            doc_id,
+            "Kerberos tickets abstract about keys.",
+            [("Intro", [P1, P2]), ("Trust", [P3])],
+            qas=[make_qa(question_id, "kerberos tickets session keys center", [make_answer(evidence=[P1])])],
+        )
+
+    write_split(
+        tmp_path / "data" / "qasper" / "qasper-dev-v0.3.json",
+        {"paperA": paper("paperA", "qa1"), "paperB": paper("paperB", "qb1")},
+    )
+    outcome = run_routers(
+        parse_routers_config(
+            {
+                "kind": "routers",
+                "dataset": {"name": "qasper", "splits": ["dev"]},
+                "embedders": ["nomic"],
+                "rrf_k": 60,
+                "rerank_depth": 3,
+                "fused_rerank_depth": 6,
+                "chunkings": [
+                    {"name": "fixed-32", "method": "fixed", "chunk_tokens": 32},
+                    {"name": "section-aware", "method": "section_aware", "max_tokens": 128},
+                ],
+                "budgets": [64, 512],
+                "top_n": 2,
+                "budget_top_n": 3,
+                "scopes": ["collection"],
+                "search_depth": 200,
+                "seed": 0,
+                "run_name": "duplicates",
+                "size_order": ["fixed-32", "section-aware"],
+                "export_packed": [{"view": "budget", "budget": 512, "scope": "collection"}],
+            }
+        ),
+        Paths(root=tmp_path),
+        encoding=FakeEncoding(),
+        models=FakeModels(),
+    )
+    rows = [
+        r
+        for r in pq.read_table(outcome.run_dir / "routed.parquet").to_pylist()
+        if r["pipeline"] == SEARCH_ALL and r["question_id"] == "qb1" and r["budget"] == 512
+    ]
+    assert rows and all(r["recall"] > 0 for r in rows)  # the copy's gold page is reachable
+    spans = pq.read_table(outcome.run_dir / "packed.parquet").to_pylist()
+    assert {r["doc_id"] for r in spans if r["pipeline"] == SEARCH_ALL} == {"paperA", "paperB"}
 
 
 def test_confidence_rows_equal_the_picked_chunkings_baseline_rows(tmp_path):

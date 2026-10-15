@@ -268,7 +268,7 @@ def load_routers_config(path: Path) -> RoutersConfig:
 
 
 def fuse_by_span(
-    rankings: Sequence[Sequence[Chunk]], span: Callable[[Chunk], tuple], names: Sequence[str]
+    rankings: Sequence[Sequence[Chunk]], span: Callable[[Chunk], tuple], names: Sequence[str], k: int = 60
 ) -> list[tuple[Chunk, str]]:
     """Fuse one ranking per chunking by reciprocal rank fusion, keyed by the
     chunks' span keys: identical text from two chunkings is one item,
@@ -284,7 +284,7 @@ def fuse_by_span(
                 representatives[key] = (chunk, name)
             keys.append(key)
         keyed.append(keys)
-    fused = reciprocal_rank_fusion(keyed)
+    fused = reciprocal_rank_fusion(keyed, k)
     return [representatives[key] for key in fused]
 
 
@@ -453,7 +453,9 @@ def run_routers(
                 production = {name: _pipeline(rankings[(name, scope)], PRODUCTION_LINE, embedder) for name in names}
 
                 # search-all: fuse the hybrid lists, rerank the fused top, pack over overlaps
-                fused = fuse_by_span([hybrid[name] for name in names], retriever.span, names)
+                fused = fuse_by_span(
+                    [hybrid[name] for name in names], lambda chunk: (chunk.doc_id, chunk.start, chunk.end), names, cfg.rrf_k
+                )
                 head = [chunk for chunk, _ in fused[: cfg.fused_rerank_depth]]
                 fused_scores = retriever._rerank_scores(question.text, [head])
                 ranked = rerank_head(
@@ -495,7 +497,8 @@ def run_routers(
                     name: production[name].scores[0] if production[name].scores else float("-inf") for name in names
                 }
                 pick = confidence_pick(top1, cfg.size_order)
-                picks[pick] += 1
+                if scope == cfg.scopes[0] and embedder == cfg.embedders[0]:
+                    picks[pick] += 1
                 picked = production[pick]
                 picked_chunking = by_name[pick]
                 head_chunks = picked.ranked[: picked.reranked or 0]
