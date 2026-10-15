@@ -99,7 +99,9 @@ def main(argv: list[str] | None = None) -> int:
         help="project root holding data/ (default: current directory)",
     )
 
-    run_parser = sub.add_parser("run", help="run a retrieval eval (one cell, or a grid with `kind: grid`)")
+    run_parser = sub.add_parser(
+        "run", help="run a retrieval eval (one cell, a grid with `kind: grid`, or the v2 routers with `kind: routers`)"
+    )
     run_parser.add_argument("config", type=Path, help="path to the run config YAML")
     run_parser.add_argument(
         "--root",
@@ -111,7 +113,7 @@ def main(argv: list[str] | None = None) -> int:
         type=int,
         default=None,
         metavar="N",
-        help="grid runs only: a seeded sample of N papers, with outputs and tables under runs/<dataset>/<run_name>-sampleN/",
+        help="grid and routers runs: a seeded sample of N papers, with outputs under runs/<dataset>/<run_name>-sampleN/",
     )
 
     headroom_parser = sub.add_parser(
@@ -221,7 +223,7 @@ def main(argv: list[str] | None = None) -> int:
             run_grid(cfg, paths, sample=args.sample)
             return 0
         if args.sample is not None:
-            parser.error("--sample applies to grid runs only")
+            parser.error("--sample applies to grid and routers runs only")
         from .run import run
 
         run(args.config, paths)

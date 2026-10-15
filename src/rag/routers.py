@@ -482,7 +482,10 @@ def run_routers(
 
                 # search-all: fuse the hybrid lists, rerank the fused top, pack over overlaps
                 fused = fuse_by_span(
-                    [hybrid[name] for name in names], lambda chunk: (chunk.doc_id, chunk.start, chunk.end), names, cfg.rrf_k
+                    [hybrid[name] for name in names],
+                    lambda chunk: (chunk.doc_id, chunk.start, chunk.end),
+                    names,
+                    cfg.rrf_k,
                 )
                 head = [chunk for chunk, _ in fused[: cfg.fused_rerank_depth]]
                 fused_scores = retriever._rerank_scores(question.text, [head])
