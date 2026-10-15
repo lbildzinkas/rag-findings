@@ -32,7 +32,9 @@ def sample_path(root: Path) -> Path:
     return root.joinpath(*READER_SAMPLE_RELATIVE_PATH)
 
 
-def draw_qasper_sample(questions: Sequence[Question], seed: int, per_dataset: int = QASPER_PER_DATASET) -> tuple[str, ...]:
+def draw_qasper_sample(
+    questions: Sequence[Question], seed: int, per_dataset: int = QASPER_PER_DATASET
+) -> tuple[str, ...]:
     """Whole papers in seeded order until exactly `per_dataset` questions;
     a paper that would overshoot is skipped and filling continues."""
     by_paper: dict[str, list[str]] = {}

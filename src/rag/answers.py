@@ -306,12 +306,12 @@ def _group_packed(table: pa.Table, chunking: str | None) -> dict[str, tuple[Pack
     if not rows:
         raise ValueError(f"no packed spans for chunking {chunking}")
     by_question: dict[str, list[PackedSpan]] = {}
-    single_chunking = {row["chunking"] for row in rows} == {chunking} if chunking else len({r["chunking"] for r in rows}) == 1
+    single_chunking = (
+        {row["chunking"] for row in rows} == {chunking} if chunking else len({r["chunking"] for r in rows}) == 1
+    )
     for row in rows:
         by_question.setdefault(row["question_id"], []).append(
-            PackedSpan(
-                doc_id=row["doc_id"], rank=row["rank"], start=row["start"], end=row["end"], tokens=row["tokens"]
-            )
+            PackedSpan(doc_id=row["doc_id"], rank=row["rank"], start=row["start"], end=row["end"], tokens=row["tokens"])
         )
     out: dict[str, tuple[PackedSpan, ...]] = {}
     for question_id, spans in by_question.items():
@@ -334,7 +334,14 @@ def load_packed(
 
 
 def oracle_picks(
-    run_dir: Path, chunkings: Sequence[str], pipeline: str, embedder: str, view: str, top_n: int, budget: int, scope: str
+    run_dir: Path,
+    chunkings: Sequence[str],
+    pipeline: str,
+    embedder: str,
+    view: str,
+    top_n: int,
+    budget: int,
+    scope: str,
 ) -> dict[str, str]:
     """Per question, the chunking with the highest retrieval recall at the
     cell, ties to the smaller chunk (the `chunkings` order)."""
@@ -507,9 +514,7 @@ def render_setup_prompts(
 # --- the dry run -----------------------------------------------------------
 
 
-def dry_run(
-    cfg: AnswersConfig, paths: Paths, encoding=None, loader=load_sample
-) -> dict[str, Any]:
+def dry_run(cfg: AnswersConfig, paths: Paths, encoding=None, loader=load_sample) -> dict[str, Any]:
     """Render every prompt of every setup and report token counts, without
     calling a model. Writes runs/<run_name>/dry-run.json (counts and hashes
     only, never prompt text) and returns the report."""
@@ -550,9 +555,7 @@ def dry_run(
                 "over_budget": sum(1 for p in rows if not p.within_budget),
             }
             if any(p.context_tokens > cfg.budget for p in rows):
-                raise ValueError(
-                    f"setup {setup.name}: packed chunks exceed the {cfg.budget}-token budget on {dataset}"
-                )
+                raise ValueError(f"setup {setup.name}: packed chunks exceed the {cfg.budget}-token budget on {dataset}")
             over_budget += stats[dataset]["over_budget"]
         report["setups"][setup.name] = stats
     report["over_budget_prompts"] = over_budget
@@ -676,10 +679,7 @@ def analyse_answers(
             dataset = dataset_of[qid]
             cluster[i] = docs_by_dataset[dataset].index(doc_of[qid]) + offsets[list(docs_by_dataset).index(dataset)]
         draws = np.hstack(
-            [
-                resample_counts(len(docs_by_dataset[dataset]), resamples, seed, dataset)
-                for dataset in docs_by_dataset
-            ]
+            [resample_counts(len(docs_by_dataset[dataset]), resamples, seed, dataset) for dataset in docs_by_dataset]
         )
         reference_rows = rows_by_setup[reference]
         for setup in setups:
@@ -690,7 +690,9 @@ def analyse_answers(
             score = clustered_mean(values, cluster, draws)
             difference = difference_interval = None
             if setup != reference and reference_rows:
-                diffs = np.array([row["score"] - reference_rows[qid]["score"] for row, qid in zip(rows, order, strict=True)])
+                diffs = np.array(
+                    [row["score"] - reference_rows[qid]["score"] for row, qid in zip(rows, order, strict=True)]
+                )
                 difference = clustered_mean(diffs, cluster, draws)
                 difference_interval = percentile_interval(difference.samples, confidence)
             out[(group, setup)] = SetupEstimate(
@@ -727,7 +729,11 @@ def render_r14(
     breakdown by query type (short-answer match with contains, token F1)."""
     datasets = sorted({row["dataset"] for row in scores}) or sorted(source.name for source in cfg.sources)
     analysis = analyse_answers(
-        scores, [setup.name for setup in cfg.setups], datasets, resamples=cfg.resamples, seed=cfg.seed,
+        scores,
+        [setup.name for setup in cfg.setups],
+        datasets,
+        resamples=cfg.resamples,
+        seed=cfg.seed,
         confidence=cfg.confidence,
     )
     lines = [f"# R14 - {cfg.run_name}: answer score per setup and dataset", "", f"Config hash: `{cfg_hash}`", ""]

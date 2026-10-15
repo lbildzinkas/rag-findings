@@ -85,8 +85,12 @@ def test_nq_sample_takes_per_type_pages_in_seeded_order():
 
 
 def test_nq_sample_rejects_two_questions_on_one_page():
-    question = Question(question_id="p1", doc_id="p1", split="dev", text="?", annotators=((SPAN,),), query_type="precise")
-    same_page = Question(question_id="p1-b", doc_id="p1", split="dev", text="?", annotators=((SPAN,),), query_type="precise")
+    question = Question(
+        question_id="p1", doc_id="p1", split="dev", text="?", annotators=((SPAN,),), query_type="precise"
+    )
+    same_page = Question(
+        question_id="p1-b", doc_id="p1", split="dev", text="?", annotators=((SPAN,),), query_type="precise"
+    )
     try:
         draw_nq_sample([question, same_page], seed=0, per_type=1)
     except ValueError as exc:

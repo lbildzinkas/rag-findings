@@ -88,7 +88,7 @@ The write-up's [limitations section](chunking/2026-10-14-v1-results.md#5-limitat
 - [`chunking/2026-10-14-v1-results.md`](chunking/2026-10-14-v1-results.md): the v1 results write-up; its figures are in [`chunking/figures/`](chunking/figures).
 - [`chunking/2026-10-10-chunk-size-vs-query-type.md`](chunking/2026-10-10-chunk-size-vs-query-type.md): the research report that motivated v1, covering the literature on chunk size versus query type, budget-matched evaluation, and a QASPER pilot.
 - [`results/`](results): the committed result tables (`qasper/`, `nq/`, `pooled/`, `routing/`); every number above comes from them.
-- [`configs/`](configs): the run configurations and the Natural Questions subset's id list.
+- [`configs/`](configs): the run configurations and the committed id lists (the Natural Questions subset, the v2 reader sample).
 - [`CONTEXT.md`](CONTEXT.md): the experiment's vocabulary.
 - [`docs/adr`](docs/adr): the settled design decisions. [ADR 0004](docs/adr/0004-run-v1-on-the-settled-question-sets-and-chunking-grid-superseding-the-reports-proposal.md) supersedes the chunking grid proposed in the research report.
 - [`src/rag`](src/rag) and [`tests`](tests): the experiment code and its unit tests.

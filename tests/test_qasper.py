@@ -165,16 +165,39 @@ def test_anchor_evidence_direct_cases():
 def test_answer_reference_direct_cases():
     from rag.qasper import answer_reference
 
-    assert answer_reference({"unanswerable": True, "extractive_spans": [], "free_form_answer": "", "yes_no": None}) is None
     assert (
-        answer_reference({"unanswerable": False, "extractive_spans": ["BIBREF19", "BIBREF20"], "free_form_answer": "", "yes_no": None})
+        answer_reference({"unanswerable": True, "extractive_spans": [], "free_form_answer": "", "yes_no": None}) is None
+    )
+    assert (
+        answer_reference(
+            {
+                "unanswerable": False,
+                "extractive_spans": ["BIBREF19", "BIBREF20"],
+                "free_form_answer": "",
+                "yes_no": None,
+            }
+        )
         == "BIBREF19, BIBREF20"  # the QASPER evaluator's join
     )
-    assert answer_reference({"unanswerable": False, "extractive_spans": [], "free_form_answer": "about 40%", "yes_no": None}) == "about 40%"
-    assert answer_reference({"unanswerable": False, "extractive_spans": [], "free_form_answer": "", "yes_no": True}) == "Yes"
+    assert (
+        answer_reference(
+            {"unanswerable": False, "extractive_spans": [], "free_form_answer": "about 40%", "yes_no": None}
+        )
+        == "about 40%"
+    )
+    assert (
+        answer_reference({"unanswerable": False, "extractive_spans": [], "free_form_answer": "", "yes_no": True})
+        == "Yes"
+    )
     # yes_no False means a "No" answer; truthiness must not decide
-    assert answer_reference({"unanswerable": False, "extractive_spans": [], "free_form_answer": "", "yes_no": False}) == "No"
-    assert answer_reference({"unanswerable": False, "extractive_spans": [], "free_form_answer": "", "yes_no": None}) is None
+    assert (
+        answer_reference({"unanswerable": False, "extractive_spans": [], "free_form_answer": "", "yes_no": False})
+        == "No"
+    )
+    assert (
+        answer_reference({"unanswerable": False, "extractive_spans": [], "free_form_answer": "", "yes_no": None})
+        is None
+    )
 
 
 def test_references_loaded_per_answering_annotator(tmp_path):

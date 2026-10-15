@@ -41,9 +41,7 @@ QASPER_DOC = build_document(
 )
 NQ_DOC = build_document("page1", "The Senate page abstract.", [("Section", ["The Senate consists of 100 members."])])
 
-QASPER_QUESTION = Question(
-    question_id="q1", doc_id="paperA", split="dev", text="How do tickets work?", annotators=()
-)
+QASPER_QUESTION = Question(question_id="q1", doc_id="paperA", split="dev", text="How do tickets work?", annotators=())
 NQ_PRECISE = Question(
     question_id="nq1", doc_id="page1", split="dev", text="how many members", annotators=(), query_type=PRECISE
 )
@@ -114,15 +112,20 @@ def env(tmp_path, fake_encoding):
         run_dir.mkdir(parents=True)
         rows = []
         for question in questions:
-            for chunking, (span, tokens) in zip(
-                CHUNKINGS, ((SPAN_A, 5), (SPAN_B, 6), (SPAN_A, 7)), strict=False
-            ):
+            for chunking, (span, tokens) in zip(CHUNKINGS, ((SPAN_A, 5), (SPAN_B, 6), (SPAN_A, 7)), strict=False):
                 if chunking == "section-aware":
                     continue
                 rows.append(packed_row(question.question_id, chunking, 1, span, tokens, QASPER_DOC.doc_id, dataset))
                 rows.append(
-                    packed_row(question.question_id, chunking, 2, SPAN_B if span == SPAN_A else SPAN_A, 4,
-                               QASPER_DOC.doc_id, dataset)
+                    packed_row(
+                        question.question_id,
+                        chunking,
+                        2,
+                        SPAN_B if span == SPAN_A else SPAN_A,
+                        4,
+                        QASPER_DOC.doc_id,
+                        dataset,
+                    )
                 )
         write_packed(run_dir / "packed.parquet", rows)
         results = [
@@ -215,9 +218,7 @@ def make_config_with(env, **overrides):
 
 def test_config_validation_rejects_bad_shapes(env):
     with pytest.raises(ValueError, match="pooled"):
-        parse_answers_config(
-            {"kind": "answers", "run_name": "x", "dataset": {"name": "qasper", "splits": ["dev"]}}
-        )
+        parse_answers_config({"kind": "answers", "run_name": "x", "dataset": {"name": "qasper", "splits": ["dev"]}})
     with pytest.raises(ValueError, match="budget view"):
         make_config_with(env, view="production")
     with pytest.raises(ValueError, match="needs a section-aware"):
@@ -288,7 +289,9 @@ def test_load_packed_filters_the_cell_and_keeps_rank_order(env):
 
 
 def test_oracle_picks_highest_recall_with_ties_to_the_smaller_chunk(env):
-    picks = oracle_picks(env.run_dir(RUN, "qasper"), CHUNKINGS, "hybrid-rerank", "nomic", "budget", 20, 1024, "collection")
+    picks = oracle_picks(
+        env.run_dir(RUN, "qasper"), CHUNKINGS, "hybrid-rerank", "nomic", "budget", 20, 1024, "collection"
+    )
     assert picks["q1"] == "fixed-128"  # 0.5 beats 0.25; ties with section-aware go to the smaller chunk
 
 
@@ -361,7 +364,13 @@ def test_render_setup_prompts_oracle_uses_the_picked_chunking(env, fake_encoding
 
 def test_dry_run_reports_available_and_pending_setups(env, fake_encoding):
     cfg = make_config(env)
-    cfg = parse_answers_config(cfg.as_dict() | {"setups": cfg.as_dict()["setups"] + [{"name": "late-128", "runs": {"qasper": "nope", "nq": "nope"}, "chunking": "late-128"}]})
+    cfg = parse_answers_config(
+        cfg.as_dict()
+        | {
+            "setups": cfg.as_dict()["setups"]
+            + [{"name": "late-128", "runs": {"qasper": "nope", "nq": "nope"}, "chunking": "late-128"}]
+        }
+    )
 
     def loader(config, paths):
         return make_sample(), DOCUMENTS
@@ -383,10 +392,14 @@ def test_dry_run_fails_when_packed_chunks_exceed_the_budget(env, fake_encoding):
     rows = [
         packed_row("q1", "fixed-128", 1, SPAN_A, 2000, "paperA", "qasper"),
     ]
-    write_packed(env.run_dir(RUN, "qasper") / "packed.parquet", rows + [
-        packed_row("nq1", "fixed-128", 1, SPAN_A, 5, "paperA", "nq"),
-        packed_row("nq2", "fixed-128", 1, SPAN_A, 5, "paperA", "nq"),
-    ])
+    write_packed(
+        env.run_dir(RUN, "qasper") / "packed.parquet",
+        rows
+        + [
+            packed_row("nq1", "fixed-128", 1, SPAN_A, 5, "paperA", "nq"),
+            packed_row("nq2", "fixed-128", 1, SPAN_A, 5, "paperA", "nq"),
+        ],
+    )
 
     def loader(config, paths):
         return make_sample(), DOCUMENTS
