@@ -4,6 +4,13 @@ each with a paired, document-clustered bootstrap CI, read from the
 per-question results of one or more grid runs (runs/<run>/results.parquet).
 No retrieval runs here.
 
+The config's `view` selects which view the analysis reads (production,
+the default, fair or budget); for a capped view `top_n` names its cap,
+so the production view's side-table rows stay out. The pre-registered
+router gate is an optional `gate` block: with it, R7 reports its verdict
+as before; without it, R7 reports the best single chunking, the oracle
+router and the routing headroom with no gate verdict.
+
 A cell is one dataset group (each dataset, and all of them pooled when
 there are several), pipeline, embedder, view and budget, under one search
 scope. Its candidate chunkings are those scored at that budget for every
@@ -53,10 +60,11 @@ from .bootstrap import (
     percentile_interval,
     resample_counts,
 )
+from .config import PRODUCTION_LINE
 from .paths import Paths
 from .query_type import CONTEXT, MIXED, PRECISE, QUERY_TYPES
 
-VIEWS = ("production", "fair")
+VIEWS = ("production", "fair", "budget")
 NA = "n/a"
 NO_EMBEDDER = "-"
 
@@ -65,37 +73,53 @@ NO_EMBEDDER = "-"
 class HeadroomConfig:
     runs: tuple[str, ...]  # grid runs under runs/ whose results are pooled
     scope: str
-    top_n: int  # the production view's top-N cap
+    top_n: int  # the analysed capped view's top-N cap (production or budget view)
     chunkings: tuple[str, ...]  # smallest chunk first: the tie-break order
     interaction_reference: str
     production_line: str  # pipeline name of the production line
-    gate_datasets: tuple[str, ...]
-    primary_budget: int
+    view: str  # which view the analysis reads: production (default), fair or budget
+    primary_budget: int  # unadjusted CI at this budget, Holm elsewhere
+    gate_datasets: tuple[str, ...]  # empty when no gate block is configured
     min_headroom: float
     confidence: float
     resamples: int
     seed: int
     run_name: str
 
+    @property
+    def gated(self) -> bool:
+        """Whether the config pre-registers the router gate."""
+        return bool(self.gate_datasets)
+
     def as_dict(self) -> dict[str, Any]:
-        return {
+        out: dict[str, Any] = {
             "kind": "headroom",
             "runs": list(self.runs),
             "scope": self.scope,
+        }
+        if self.view != "production":
+            out["view"] = self.view
+        out |= {
             "top_n": self.top_n,
             "chunkings": list(self.chunkings),
             "interaction_reference": self.interaction_reference,
-            "gate": {
+        }
+        if self.gated:
+            out["gate"] = {
                 "pipeline": self.production_line,
                 "datasets": list(self.gate_datasets),
                 "budget": self.primary_budget,
                 "min_headroom": self.min_headroom,
                 "confidence": self.confidence,
-            },
+            }
+        else:
+            out["primary_budget"] = self.primary_budget
+        out |= {
             "resamples": self.resamples,
             "seed": self.seed,
             "run_name": self.run_name,
         }
+        return out
 
 
 def load_headroom_config(path: Path) -> HeadroomConfig:
@@ -106,18 +130,29 @@ def parse_headroom_config(raw: dict[str, Any]) -> HeadroomConfig:
     try:
         if raw.get("kind") != "headroom":
             raise ValueError("a headroom config needs `kind: headroom`")
-        gate = raw["gate"]
+        gate = raw.get("gate")
+        if gate is not None and not gate["datasets"]:
+            raise ValueError("gate datasets must not be empty")
+        primary_budget = int(raw["primary_budget"]) if "primary_budget" in raw else None
+        if gate is not None:
+            gate_budget = int(gate["budget"])
+            if primary_budget is not None and primary_budget != gate_budget:
+                raise ValueError("primary_budget and gate budget disagree; give one or make them equal")
+            primary_budget = gate_budget
+        if primary_budget is None:
+            raise ValueError("give the gate budget, or primary_budget when the gate block is absent")
         cfg = HeadroomConfig(
             runs=tuple(str(r) for r in raw["runs"]),
             scope=str(raw.get("scope", "collection")),
             top_n=int(raw["top_n"]),
             chunkings=tuple(str(c) for c in raw["chunkings"]),
             interaction_reference=str(raw["interaction_reference"]),
-            production_line=str(gate["pipeline"]),
-            gate_datasets=tuple(str(d) for d in gate["datasets"]),
-            primary_budget=int(gate["budget"]),
-            min_headroom=float(gate["min_headroom"]),
-            confidence=float(gate["confidence"]),
+            production_line=str(gate["pipeline"]) if gate is not None else PRODUCTION_LINE,
+            view=str(raw.get("view", "production")),
+            primary_budget=primary_budget,
+            gate_datasets=tuple(str(d) for d in gate["datasets"]) if gate is not None else (),
+            min_headroom=float(gate["min_headroom"]) if gate is not None else 0.0,
+            confidence=float(gate["confidence"]) if gate is not None else 0.95,
             resamples=int(raw["resamples"]),
             seed=int(raw["seed"]),
             run_name=str(raw.get("run_name", "headroom")),
@@ -130,10 +165,10 @@ def parse_headroom_config(raw: dict[str, Any]) -> HeadroomConfig:
         raise ValueError("chunkings must be a non-empty list of distinct names, smallest chunk first")
     if cfg.interaction_reference not in cfg.chunkings:
         raise ValueError("interaction_reference must be one of the chunkings")
-    if not cfg.gate_datasets:
-        raise ValueError("gate datasets must not be empty")
+    if cfg.view not in VIEWS:
+        raise ValueError(f"view must be one of {list(VIEWS)}, got {cfg.view}")
     if cfg.top_n <= 0 or cfg.primary_budget <= 0 or cfg.resamples <= 0:
-        raise ValueError("top_n, gate budget and resamples must be positive")
+        raise ValueError("top_n, primary budget and resamples must be positive")
     if not 0 < cfg.confidence < 1:
         raise ValueError("gate confidence must be between 0 and 1")
     return cfg
@@ -187,10 +222,12 @@ def load_results(cfg: HeadroomConfig, paths: Paths) -> Results:
     for run in cfg.runs:
         run_dir = paths.run_dir(run)
         table = pq.read_table(run_dir / "results.parquet", columns=_COLUMNS)
-        in_view = pc.or_kleene(
-            pc.equal(table["view"], "fair"),
-            pc.and_kleene(pc.equal(table["view"], "production"), pc.equal(table["top_n"], cfg.top_n)),
-        )
+        # the analysed capped view at its own cap, plus the fair view (which has none)
+        in_view = pc.equal(table["view"], "fair")
+        if cfg.view != "fair":
+            in_view = pc.or_kleene(
+                in_view, pc.and_kleene(pc.equal(table["view"], cfg.view), pc.equal(table["top_n"], cfg.top_n))
+            )
         mask = pc.and_kleene(pc.equal(table["scope"], cfg.scope), in_view).fill_null(False)
         tables.append(table.filter(mask))
         manifest = run_dir / "manifest.json"
@@ -394,11 +431,11 @@ class GateRow:
 
 def gate_rows(cfg: HeadroomConfig, results: list[CellResult], pipelines: Sequence[str]) -> list[GateRow]:
     """The gate test (headroom >= min_headroom and the CI excludes 0) per
-    pipeline and embedder, in the production view at the primary budget, on
+    pipeline and embedder, in the analysed view at the primary budget, on
     the widest group (pooled when the cell has several datasets)."""
     widest: dict[tuple[str, str], CellResult] = {}
     for r in results:
-        if r.pipeline not in pipelines or r.view != "production" or r.budget != cfg.primary_budget:
+        if r.pipeline not in pipelines or r.view != cfg.view or r.budget != cfg.primary_budget:
             continue
         key = (r.pipeline, r.embedder)
         if key not in widest or len(r.group.datasets) > len(widest[key].group.datasets):
@@ -429,13 +466,13 @@ def gate_verdict(cfg: HeadroomConfig, results: list[CellResult]) -> list[str]:
         pipelines = sorted({r.pipeline for r in results})
         return [
             f"**Gate not judged:** these results hold no production-line pipeline (`{cfg.production_line}`) at "
-            f"{cfg.primary_budget} tokens in the production view; pipelines present: "
+            f"{cfg.primary_budget} tokens in the {cfg.view} view; pipelines present: "
             + ", ".join(f"`{p}`" for p in pipelines)
             + ". The verdict comes from the re-run on the full results."
         ]
     lines = [
         (
-            f"Judged on the production line (`{cfg.production_line}`), production view (top-N cap {cfg.top_n}), "
+            f"Judged on the production line (`{cfg.production_line}`), {cfg.view} view (top-N cap {cfg.top_n}), "
             f"{cfg.primary_budget}-token budget, {cfg.confidence:.0%} CI."
         )
     ]
@@ -518,30 +555,31 @@ _CI_NOTE = (
 
 def _r7(cfg: HeadroomConfig, results: list[CellResult], header: list[str]) -> str:
     lines = list(header)
-    lines += ["## Router gate (pre-registered)", ""]
-    lines += [
-        (
-            f"Rule: build the router in v2 if, on the production line, in the production view, at the primary "
-            f"budget of {cfg.primary_budget} tokens, pooled over {' + '.join(cfg.gate_datasets)}, either embedder's "
-            f"routing headroom is at least +{cfg.min_headroom:.4f} retrieval recall with a {cfg.confidence:.0%} CI "
-            "that excludes 0."
-        ),
-        "",
-    ]
-    lines += gate_verdict(cfg, results) + [""]
-    reference = gate_rows(cfg, results, sorted({r.pipeline for r in results} - {cfg.production_line}))
-    if reference:
+    if cfg.gated:
+        lines += ["## Router gate (pre-registered)", ""]
         lines += [
-            "### The same test on the other pipelines (for reference, not the gate)",
+            (
+                f"Rule: build the router in v2 if, on the production line, in the {cfg.view} view, at the primary "
+                f"budget of {cfg.primary_budget} tokens, pooled over {' + '.join(cfg.gate_datasets)}, either embedder's "
+                f"routing headroom is at least +{cfg.min_headroom:.4f} retrieval recall with a {cfg.confidence:.0%} CI "
+                "that excludes 0."
+            ),
             "",
-            f"| pipeline | embedder | best single chunking | routing headroom | {cfg.confidence:.0%} CI | meets the bar |",
-            "|---|---|---|---|---|---|",
         ]
-        lines += [
-            f"| {g.pipeline} | {g.embedder} | {g.best} | {_signed(g.headroom)} | {_ci(g.interval)} | {_yes(g.clears)} |"
-            for g in reference
-        ]
-        lines.append("")
+        lines += gate_verdict(cfg, results) + [""]
+        reference = gate_rows(cfg, results, sorted({r.pipeline for r in results} - {cfg.production_line}))
+        if reference:
+            lines += [
+                "### The same test on the other pipelines (for reference, not the gate)",
+                "",
+                f"| pipeline | embedder | best single chunking | routing headroom | {cfg.confidence:.0%} CI | meets the bar |",
+                "|---|---|---|---|---|---|",
+            ]
+            lines += [
+                f"| {g.pipeline} | {g.embedder} | {g.best} | {_signed(g.headroom)} | {_ci(g.interval)} | {_yes(g.clears)} |"
+                for g in reference
+            ]
+            lines.append("")
 
     note = _CI_NOTE.format(resamples=cfg.resamples, seed=cfg.seed, confidence=cfg.confidence, budget=cfg.primary_budget)
     headroom = _series(results, cfg, lambda r: r.analysis.headroom)
@@ -763,7 +801,16 @@ def run_headroom(cfg: HeadroomConfig, paths: Paths) -> HeadroomOutcome:
     if not results:
         raise ValueError("no cell has a scored chunking")
     tables = write_headroom_tables(cfg, cfg_hash, loaded, results, paths.results)
-    verdict = gate_verdict(cfg, results)
+    verdict = (
+        gate_verdict(cfg, results)
+        if cfg.gated
+        else (
+            (
+                f"No gate block configured: the {cfg.view} view results report the best single chunking, the oracle "
+                "router and the routing headroom without a gate verdict."
+            ),
+        )
+    )
     print(f"headroom {cfg.run_name}: {len(results)} cells, {cfg.resamples} resamples, seed {cfg.seed}")
     for line in verdict:
         print(f"  {line}")

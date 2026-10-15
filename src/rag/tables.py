@@ -7,8 +7,9 @@ decimals; nothing run-specific (time, versions) enters a table, so the
 same config over the same data regenerates them byte-identically.
 
 - R2: chunking x budget, retrieval recall and precision, production view
-  and fair view side by side, plus the side table with the smaller top-N
-  cap; collection search.
+  and fair view side by side, plus the budget view (top-N cap
+  `budget_top_n`, v2: 20, when it is set) and the side table with the
+  smaller top-N cap; collection search.
 - R2w: R2 with search within the question's own document.
 - R3: chunking x budget, retrieval recall per query type and the
   difference between types (context minus precise); collection search.
@@ -17,7 +18,8 @@ same config over the same data regenerates them byte-identically.
 - R5 (runs with embedders): pipeline x embedder x chunking at each
   budget, the production line first and the ablations after, with each
   chunking's truncation share under the embedder and how often packing
-  reached the production line's unreranked tail; collection search.
+  reached the production line's unreranked tail; the budget view's recall
+  and precision join when `budget_top_n` is set; collection search.
 - R6: NQ short-answer span recall per chunking and budget (Natural
   Questions runs only), the same packing scored against the
   short-answer spans of precise questions that have one.
@@ -302,6 +304,21 @@ def _r2(
                     f"{_metric(prod, prod.precision, True)} | {_metric(fair, fair.recall, False)} | "
                     f"{_metric(fair, fair.precision, False)} | {_cap_cell(prod)} |"
                 )
+        if cfg.budget_top_n is not None:
+            lines += [
+                "",
+                f"{h} Budget view (top-N cap {cfg.budget_top_n})",
+                "",
+                "| chunking | budget | recall | precision | cap binds |",
+                "|---|---|---|---|---|",
+            ]
+            for spec in cfg.chunkings:
+                for budget in cfg.budgets:
+                    view = cells[(*block, scope, spec.name, "budget", cfg.budget_top_n, budget)]
+                    lines.append(
+                        f"| {spec.name} | {budget} | {_metric(view, view.recall, True)} | "
+                        f"{_metric(view, view.precision, True)} | {_cap_cell(view)} |"
+                    )
         lines += [
             "",
             f"{h} Side table: production view, top-N cap {cfg.side_top_n}",
@@ -425,40 +442,56 @@ def _r5(cfg: GridConfig, cells: dict[tuple, _Cell], header: list[str], truncatio
         "## Retrieval recall and precision by pipeline, embedder and chunking, collection search",
         "",
         (
-            f"Production view: top-N cap {cfg.top_n}; fair view: no cap. The production line comes first, then its "
-            "ablations. Every cell is filled or n/a with its reason."
+            f"Production view: top-N cap {cfg.top_n}; fair view: no cap"
+            + (f"; budget view: top-N cap {cfg.budget_top_n}" if cfg.budget_top_n is not None else "")
+            + ". The production line comes first, then its ablations. Every cell is filled or n/a with its reason."
         ),
         "",
     ]
     for budget in cfg.budgets:
+        has_budget = cfg.budget_top_n is not None
+        header_cells = ["pipeline", "embedder", "chunking", "production recall", "production precision"]
+        header_cells += ["budget recall", "budget precision"] if has_budget else []
+        header_cells += ["fair recall", "fair precision", "truncated chunks"]
+        header_cells += ["tail used, production view"] + (["tail used, budget view"] if has_budget else [])
+        header_cells += ["tail used, fair view"]
         lines += [
             f"### Budget {budget} tokens",
             "",
-            (
-                "| pipeline | embedder | chunking | production recall | production precision | fair recall "
-                "| fair precision | truncated chunks | tail used, production view | tail used, fair view |"
-            ),
-            "|---|---|---|---|---|---|---|---|---|---|",
+            "| " + " | ".join(header_cells) + " |",
+            "|" + "---|" * len(header_cells),
         ]
         for pipeline, embedder in blocks(cfg):
             for spec in cfg.chunkings:
                 prod = cells[(pipeline, embedder, "collection", spec.name, "production", cfg.top_n, budget)]
                 fair = cells[(pipeline, embedder, "collection", spec.name, "fair", None, budget)]
+                view_cells = [prod]
+                if has_budget:
+                    view_cells.append(
+                        cells[(pipeline, embedder, "collection", spec.name, "budget", cfg.budget_top_n, budget)]
+                    )
+                view_cells.append(fair)
                 if embedder is None:
                     truncated = f"{NA}: no embedder"
                 else:
                     share = truncation[(spec.name, embedder)]
                     truncated = _fmt(share) + (f" {TRUNCATION_MARK}" if share > 0 else "")
+                # recall then precision per capped view (production, budget), then the fair view
                 metrics = [
-                    _metric(prod, prod.recall, True, tail_mark=False) if prod.scored else unscored,
-                    _metric(prod, prod.precision, True, tail_mark=False) if prod.scored else unscored,
+                    value
+                    for c in view_cells[:-1]
+                    for value in (
+                        _metric(c, c.recall, True, tail_mark=False) if c.scored else unscored,
+                        _metric(c, c.precision, True, tail_mark=False) if c.scored else unscored,
+                    )
+                ] + [
                     _fmt(_mean(fair.recall)) if fair.scored else unscored,
                     _fmt(_mean(fair.precision)) if fair.scored else unscored,
                 ]
                 if pipeline != PRODUCTION_LINE:
-                    tails = [f"{NA}: no reranker"] * 2
+                    tails = [f"{NA}: no reranker"] * len(view_cells)
                 else:
-                    tails = [_fmt(_share(c.used_tail)) if c.scored else unscored for c in (prod, fair)]
+                    tails = [_fmt(_share(c.used_tail)) if c.scored else unscored for c in view_cells]
                 row = [pipeline, embedder or "none", spec.name, *metrics, truncated, *tails]
                 lines.append("| " + " | ".join(row) + " |")
         lines.append("")

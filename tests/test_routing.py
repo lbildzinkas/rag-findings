@@ -49,8 +49,16 @@ def _recall(pipeline: str, embedder: str | None, chunking: int, q: int, rng: np.
     return base if chunking == 0 else base * 0.5
 
 
-def write_results(run_dir: Path, datasets: dict[str, int], pipelines: list[tuple[str, str | None]]) -> None:
+def write_results(
+    run_dir: Path,
+    datasets: dict[str, int],
+    pipelines: list[tuple[str, str | None]],
+    budget_top_n: int | None = None,
+) -> None:
     rng = np.random.default_rng(0)
+    views = [("production", 8), ("production", 5), ("fair", None)]
+    if budget_top_n is not None:
+        views.append(("budget", budget_top_n))
     rows: dict[str, list] = {name: [] for name in RESULTS_SCHEMA.names}
     for dataset, n_docs in datasets.items():
         for q in range(n_docs * 3):
@@ -58,7 +66,7 @@ def write_results(run_dir: Path, datasets: dict[str, int], pipelines: list[tuple
             for pipeline, embedder in pipelines:
                 for c, chunking in enumerate(CHUNKINGS):
                     for scope in ("collection", "document"):
-                        for view, top_n in (("production", 8), ("production", 5), ("fair", None)):
+                        for view, top_n in views:
                             for budget in BUDGETS:
                                 scored = not (chunking == "fixed-64" and budget < 64)
                                 row = {
@@ -252,6 +260,7 @@ def test_headroom_reads_the_run_directory_the_grid_writer_produces(tmp_path: Pat
         {"runs": []},
         {"resamples": 0},
         {"gate": {**CONFIG["gate"], "confidence": 1.5}},
+        {"gate": {**CONFIG["gate"], "datasets": []}},
         {"gate": {"pipeline": "hybrid-rerank"}},
     ],
 )

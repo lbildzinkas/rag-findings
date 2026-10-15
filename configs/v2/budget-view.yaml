@@ -1,0 +1,19 @@
+kind: headroom
+# the v2 baseline runs, scored in the budget view (ADR 0006)
+runs: [qasper/v2-baseline, nq/v2-baseline]
+scope: collection
+# the budget view's top-N cap
+view: budget
+top_n: 20
+# smallest chunk first: the oracle router's tie-break order. Section-aware
+# and small-to-big chunks vary in size up to their 512-token cap, so they
+# rank by that cap, after fixed-512 in config order.
+chunkings: [fixed-64, fixed-128, fixed-256, fixed-512, section-aware, small-to-big, fixed-1024]
+# the smaller chunking each interaction is taken against
+interaction_reference: fixed-128
+# no gate block: R7 reports the best single chunking, the oracle router and
+# the routing headroom without a gate verdict (the gate was v1's question)
+primary_budget: 1024
+resamples: 10000
+seed: 0
+run_name: v2-budget-view
