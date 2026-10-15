@@ -1,0 +1,30 @@
+kind: grid
+dataset:
+  name: nq
+  splits: [dev]
+# v2 baseline: the production line only, nomic only (ADR 0007)
+pipelines: [hybrid-rerank]
+embedders: [nomic]
+rrf_k: 60
+rerank_depth: 30
+chunkings:
+  - {name: fixed-64, method: fixed, chunk_tokens: 64}
+  - {name: fixed-128, method: fixed, chunk_tokens: 128}
+  - {name: fixed-256, method: fixed, chunk_tokens: 256}
+  - {name: fixed-512, method: fixed, chunk_tokens: 512}
+  - {name: fixed-1024, method: fixed, chunk_tokens: 1024}
+  - {name: section-aware, method: section_aware, max_tokens: 512}
+  - {name: small-to-big, method: small_to_big, max_tokens: 512, child_tokens: 128}
+budgets: [128, 256, 512, 1024, 2048, 4096, 8192]
+top_n: 8
+side_top_n: 5
+# the budget view (ADR 0006): at most 20 reranked whole chunks per question
+budget_top_n: 20
+scopes: [collection]
+fixed_k: [1, 5, 10]
+search_depth: 1000
+seed: 0
+run_name: v2-baseline
+# packed spans for the reader (v2's primary cell: budget view, 1024 tokens)
+export_packed:
+  - {view: budget, budget: 1024, scope: collection}

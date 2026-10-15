@@ -58,6 +58,25 @@ class RerankStats:
         }
 
 
+@dataclass
+class EmbedStats:
+    """Cache misses and hits of the embedding stage, so a manifest records
+    how many new vectors a run computed (zero on a fully cached re-run)."""
+
+    chunk_vectors_embedded: int = 0  # chunk texts the model embedded (cache misses)
+    chunk_vectors_cached: int = 0
+    queries_embedded: int = 0  # question vectors the model embedded (cache misses)
+    queries_cached: int = 0
+
+    def as_dict(self) -> dict[str, int]:
+        return {
+            "chunk_vectors_embedded": self.chunk_vectors_embedded,
+            "chunk_vectors_cached": self.chunk_vectors_cached,
+            "queries_embedded": self.queries_embedded,
+            "queries_cached": self.queries_cached,
+        }
+
+
 def _log(message: str) -> None:
     print(message, flush=True)
 
@@ -74,6 +93,7 @@ class Retriever:
     cache: Cache
     lance_dir: Path
     stats: RerankStats = field(default_factory=RerankStats)
+    embed_stats: EmbedStats = field(default_factory=EmbedStats)
     truncated: dict[tuple[str, str], float] = field(default_factory=dict)  # (chunking, embedder) -> share
 
     def __post_init__(self) -> None:
@@ -114,6 +134,8 @@ class Retriever:
                 cached[doc_hash] = self.cache.vectors(key, doc_hash)
             vectors.append(cached[doc_hash].get((unit.start, unit.end)))
         missing = [i for i, v in enumerate(vectors) if v is None]
+        self.embed_stats.chunk_vectors_cached += len(units) - len(missing)
+        self.embed_stats.chunk_vectors_embedded += len(missing)
         if missing:
             log(f"  embedding {label}: {len(missing)} of {len(units)} chunks not cached")
         for step in range(0, len(missing), EMBED_BATCH):
@@ -132,6 +154,8 @@ class Retriever:
             key = model_key(embedder.spec)
             vectors = self.cache.query_vectors(key, texts)
             missing = [t for t in texts if t not in vectors]
+            self.embed_stats.queries_cached += len(texts) - len(missing)
+            self.embed_stats.queries_embedded += len(missing)
             if missing:
                 new = embedder.embed_queries(missing)
                 self.cache.put_query_vectors(key, zip(missing, new, strict=True))

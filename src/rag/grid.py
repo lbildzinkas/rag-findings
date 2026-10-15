@@ -5,9 +5,11 @@ views and both search scopes, under every configured retrieval pipeline
 For each question, chunking, search scope, pipeline and embedder, one
 ranked list is retrieved (see rag.pipelines) and packed at every budget
 three ways: the production view (top-N cap), the production view's side
-table (a smaller cap) and the fair view (no cap). A fixed chunking whose
-chunk is bigger than the budget is not scored at that budget. Retrieval
-sees only the question text, never its query type.
+table (a smaller cap) and the fair view (no cap); an optional
+`budget_top_n` adds the budget view, whose cap (v2: 20) sits above the
+production cap. A fixed chunking whose chunk is bigger than the budget
+is not scored at that budget. Retrieval sees only the question text,
+never its query type.
 
 Per-question results go to runs/<dataset>/<run_name>/ (git-ignored) as
 Parquet, one row per pipeline and embedder (`pipeline`, `embedder`):
@@ -22,6 +24,11 @@ Parquet, one row per pipeline and embedder (`pipeline`, `embedder`):
   share of the chunking's chunks longer than the embedder's input limit
   (null without an embedder) and whether packing used the production
   line's unreranked tail (null for pipelines without the reranker);
+- packed.parquet (only for cells under `export_packed`): one row per
+  packed chunk of the exported (view, budget, scope) cells, with the
+  question, pipeline, embedder, chunking, the chunk's rank and its
+  document, character span and token count, so the reader stage and the
+  re-scoring check can rebuild exactly what was scored;
 - fixed_k.parquet: one row per question x pipeline x embedder x chunking
   x scope x k, with hit@k and recall@k (collection search only).
 
@@ -61,7 +68,7 @@ from .run import dataset_split_hashes, excluded_counts, gold_token_sets, library
 from .tables import write_tables
 from .tokens import TokenText
 
-SCHEMA_VERSION = "3"  # 2: short_recall; 3: truncated_share and used_tail
+SCHEMA_VERSION = "4"  # 2: short_recall; 3: truncated_share and used_tail; 4: budget view and packed.parquet
 
 QUESTIONS_SCHEMA = pa.schema(
     [
@@ -115,6 +122,18 @@ FIXED_K_SCHEMA = pa.schema(
         ("hit", pa.bool_()),
         ("recall", pa.float64()),
         ("relevant_units", pa.int32()),
+    ]
+)
+
+PACKED_SCHEMA = pa.schema(
+    _KEYS
+    + [
+        ("view", pa.string()),
+        ("budget", pa.int32()),
+        ("rank", pa.int32()),  # position in the packed list, 1-based
+        ("start", pa.int32()),  # character offset into the document's canonical text
+        ("end", pa.int32()),
+        ("tokens", pa.int32()),
     ]
 )
 
@@ -208,7 +227,20 @@ def _build_chunking(
 
 
 def _views(cfg: GridConfig) -> list[tuple[str, int | None]]:
-    return [("production", cfg.top_n), ("production", cfg.side_top_n), ("fair", None)]
+    views = [("production", cfg.top_n), ("production", cfg.side_top_n), ("fair", None)]
+    if cfg.budget_top_n is not None:
+        views.append(("budget", cfg.budget_top_n))
+    return views
+
+
+def _export_cells(cfg: GridConfig) -> set[tuple[str, int | None, int, str]]:
+    """The exported (view, top_n, budget, scope) cells; a production export
+    uses the production view's own cap, not the side table's."""
+    cells = set()
+    for cell in cfg.export_packed:
+        top_n = {"production": cfg.top_n, "budget": cfg.budget_top_n, "fair": None}[cell.view]
+        cells.add((cell.view, top_n, cell.budget, cell.scope))
+    return cells
 
 
 def _score_question(
@@ -222,6 +254,7 @@ def _score_question(
     retriever: Retriever,
     results: _Columns,
     fixed_k: _Columns,
+    packed: _Columns,
 ) -> None:
     keys = {
         "dataset": dataset,
@@ -243,7 +276,9 @@ def _score_question(
                     "scope": scope,
                     "truncated_share": truncated,
                 }
-                _score_ranking(cfg, question, gold, short_gold, chunking, scope, ranking, cell, results, fixed_k)
+                _score_ranking(
+                    cfg, question, gold, short_gold, chunking, scope, ranking, cell, results, fixed_k, packed
+                )
 
 
 def _score_ranking(
@@ -257,6 +292,7 @@ def _score_ranking(
     cell: dict,
     results: _Columns,
     fixed_k: _Columns,
+    packed: _Columns,
 ) -> None:
     """Score one ranked list at every budget and view. For the production
     line, packing used the unreranked tail exactly when packing the whole
@@ -265,6 +301,7 @@ def _score_ranking(
     nominal = chunking.spec.fixed_size
     ranked = ranking.ranked
     head = None if ranking.reranked is None else ranked[: ranking.reranked]
+    exports = _export_cells(cfg)
     if scope == "collection":
         for s in score_fixed_k(
             gold,
@@ -281,10 +318,10 @@ def _score_ranking(
             continue
         fair = chunking.packer(ranked, budget, None)
         for view, top_n in _views(cfg):
-            packed = fair if top_n is None else chunking.packer(ranked, budget, top_n)
-            used_tail = None if head is None else len(packed) > len(chunking.packer(head, budget, top_n))
-            score = score_question(gold, packed, question.doc_id)
-            short_recall = score_question(short_gold, packed, question.doc_id).recall if short_gold else None
+            packed_chunks = fair if top_n is None else chunking.packer(ranked, budget, top_n)
+            used_tail = None if head is None else len(packed_chunks) > len(chunking.packer(head, budget, top_n))
+            score = score_question(gold, packed_chunks, question.doc_id)
+            short_recall = score_question(short_gold, packed_chunks, question.doc_id).recall if short_gold else None
             results.add(
                 **cell,
                 view=view,
@@ -296,11 +333,22 @@ def _score_ranking(
                 short_recall=short_recall,
                 retrieved_tokens=score.retrieved_tokens,
                 gold_tokens=score.gold_tokens,
-                n_chunks=len(packed),
+                n_chunks=len(packed_chunks),
                 kept_annotator=score.annotator,
-                cap_bound=None if top_n is None else len(fair) > len(packed),
+                cap_bound=None if top_n is None else len(fair) > len(packed_chunks),
                 used_tail=used_tail,
             )
+            if (view, top_n, budget, scope) in exports:
+                for rank, chunk in enumerate(packed_chunks, start=1):
+                    packed.add(  # the chunk's document: retrieved text can come from any document
+                        **{**cell, "doc_id": chunk.doc_id},
+                        view=view,
+                        budget=budget,
+                        rank=rank,
+                        start=chunk.start,
+                        end=chunk.end,
+                        tokens=chunk.n_tokens,
+                    )
 
 
 @dataclass(frozen=True)
@@ -400,6 +448,7 @@ def run_grid(
     questions = _Columns(QUESTIONS_SCHEMA)
     results = _Columns(RESULTS_SCHEMA)
     fixed_k = _Columns(FIXED_K_SCHEMA)
+    packed = _Columns(PACKED_SCHEMA)
     query_types = {t: 0 for t in QUERY_TYPES}
     query_types_by_dataset: dict[str, dict[str, int]] = {}
     for done, (dataset, question) in enumerate(all_questions, start=1):
@@ -434,7 +483,7 @@ def run_grid(
             if short_scored
             else []
         )
-        _score_question(cfg, question, dataset, qtype, gold, short_gold, chunkings, retriever, results, fixed_k)
+        _score_question(cfg, question, dataset, qtype, gold, short_gold, chunkings, retriever, results, fixed_k, packed)
         if not cfg.bm25_only and (done % 50 == 0 or done == len(all_questions)):
             elapsed = time.monotonic() - indexed
             print(
@@ -449,6 +498,8 @@ def run_grid(
     questions.write(run_dir / "questions.parquet")
     results.write(run_dir / "results.parquet")
     fixed_k.write(run_dir / "fixed_k.parquet")
+    if cfg.export_packed:
+        packed.write(run_dir / "packed.parquet")
 
     dataset_hashes = dataset_split_hashes(splits)
     tables = write_tables(cfg, cfg_hash, dataset_hashes, run_dir, results_dir, sample=sample)
@@ -490,6 +541,7 @@ def run_grid(
             spec.name: {e: retriever.truncated[(spec.name, e)] for e in cfg.embedders} for spec in cfg.chunkings
         }
         manifest["reranker"] = retriever.stats.as_dict()
+        manifest["embeddings"] = retriever.embed_stats.as_dict()
         manifest["phase_seconds"] = {
             "load_embed_and_index": round(indexed - started, 3),
             "retrieve_rerank_and_score": round(retrieved - indexed, 3),
@@ -504,6 +556,7 @@ def run_grid(
         print(f"  chunks indexed, {name}: {n} over {len(documents)} documents (tiling verified)")
     if not cfg.bm25_only:
         print(f"  reranker: {retriever.stats.as_dict()}")
+        print(f"  embeddings: {retriever.embed_stats.as_dict()}")
         print(f"  wall time: {manifest['duration_seconds'] / 60:.1f} min")
     print(f"  per-question results: {run_dir}")
     for path in tables:

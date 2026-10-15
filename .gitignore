@@ -1,6 +1,6 @@
 # dataset downloads and derived run outputs never enter git
 data/
-runs/
+runs
 
 # python
 .venv/

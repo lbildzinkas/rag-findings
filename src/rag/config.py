@@ -16,6 +16,13 @@ as before, so existing config hashes are unchanged.
 A grid names its pipelines with `pipelines:` (and the embedders the
 vector-based ones use with `embedders:`); the BM25-only form
 `pipeline: bm25` stays valid and keeps its canonical JSON, and so its hash.
+
+An optional `budget_top_n` adds the budget view (as many reranked whole
+chunks as fit the token budget, at most that many per question) next to
+the production and fair views, and an optional `export_packed` lists the
+(view, budget, scope) cells whose packed chunks are written to the run's
+`packed.parquet`. A config without these keys keeps its canonical JSON,
+and so its hash: v1 configs render exactly as before.
 """
 
 from __future__ import annotations
@@ -206,6 +213,20 @@ class ChunkingSpec:
 
 
 @dataclass(frozen=True)
+class PackedExport:
+    """One (view, budget, scope) cell whose packed chunks are written to
+    `packed.parquet`: one row per packed chunk, for every pipeline,
+    embedder and chunking of the run."""
+
+    view: str
+    budget: int
+    scope: str
+
+    def as_dict(self) -> dict[str, Any]:
+        return {"view": self.view, "budget": self.budget, "scope": self.scope}
+
+
+@dataclass(frozen=True)
 class GridConfig:
     dataset: str
     sources: tuple[DatasetRef, ...]
@@ -222,6 +243,9 @@ class GridConfig:
     embedders: tuple[str, ...] = ()
     rrf_k: int = 60
     rerank_depth: int = 30
+
+    budget_top_n: int | None = None  # budget view (v2): cap on reranked chunks per question
+    export_packed: tuple[PackedExport, ...] = ()  # cells written to packed.parquet
 
     @property
     def bm25_only(self) -> bool:
@@ -242,7 +266,7 @@ class GridConfig:
                 "rrf_k": self.rrf_k,
                 "rerank_depth": self.rerank_depth,
             }
-        return {
+        out: dict[str, Any] = {
             "kind": "grid",
             "dataset": _dataset_dict(self.dataset, self.sources),
             **pipelines,
@@ -256,6 +280,11 @@ class GridConfig:
             "seed": self.seed,
             "run_name": self.run_name,
         }
+        if self.budget_top_n is not None:
+            out["budget_top_n"] = self.budget_top_n
+        if self.export_packed:
+            out["export_packed"] = [cell.as_dict() for cell in self.export_packed]
+        return out
 
 
 def _parse_chunking(raw: dict[str, Any]) -> ChunkingSpec:
@@ -301,6 +330,11 @@ def parse_grid_config(raw: dict[str, Any]) -> GridConfig:
             embedders=tuple(raw.get("embedders", ())),
             rrf_k=int(raw.get("rrf_k", 60)),
             rerank_depth=int(raw.get("rerank_depth", 30)),
+            budget_top_n=int(raw["budget_top_n"]) if "budget_top_n" in raw else None,
+            export_packed=tuple(
+                PackedExport(view=str(cell["view"]), budget=int(cell["budget"]), scope=str(cell["scope"]))
+                for cell in raw.get("export_packed", ())
+            ),
         )
     except (KeyError, TypeError) as exc:
         raise ValueError(f"invalid grid config: {exc}") from exc
@@ -330,6 +364,20 @@ def _validate_grid(cfg: GridConfig) -> None:
         raise ValueError(
             f"search_depth {cfg.search_depth} x {min(smallest)}-token chunks cannot fill the {cfg.budgets[-1]} budget"
         )
+    if cfg.budget_top_n is not None and cfg.budget_top_n <= 0:
+        raise ValueError("budget_top_n must be positive")
+    cells = {(cell.view, cell.budget, cell.scope) for cell in cfg.export_packed}
+    if len(cells) != len(cfg.export_packed):
+        raise ValueError("export_packed cells must be distinct")
+    for cell in cfg.export_packed:
+        if cell.view not in {"production", "fair", "budget"}:
+            raise ValueError(f"export_packed view must be production, fair or budget, got {cell.view}")
+        if cell.budget not in cfg.budgets:
+            raise ValueError(f"export_packed budget {cell.budget} is not one of the run's budgets")
+        if cell.scope not in cfg.scopes:
+            raise ValueError(f"export_packed scope {cell.scope} is not one of the run's scopes")
+        if cell.view == "budget" and cfg.budget_top_n is None:
+            raise ValueError("export_packed view budget needs budget_top_n")
 
 
 def _validate_pipelines(cfg: GridConfig) -> None:
