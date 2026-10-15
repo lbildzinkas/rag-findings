@@ -160,3 +160,72 @@ def test_anchor_evidence_direct_cases():
     anchor = anchor_evidence("FLOAT SELECTED: " + PARA_B, spans, paragraphs, [])
     assert anchor.kind == "paragraph"
     assert anchor.span == spans[2]
+
+
+def test_answer_reference_direct_cases():
+    from rag.qasper import answer_reference
+
+    assert (
+        answer_reference({"unanswerable": True, "extractive_spans": [], "free_form_answer": "", "yes_no": None}) is None
+    )
+    assert (
+        answer_reference(
+            {
+                "unanswerable": False,
+                "extractive_spans": ["BIBREF19", "BIBREF20"],
+                "free_form_answer": "",
+                "yes_no": None,
+            }
+        )
+        == "BIBREF19, BIBREF20"  # the QASPER evaluator's join
+    )
+    assert (
+        answer_reference(
+            {"unanswerable": False, "extractive_spans": [], "free_form_answer": "about 40%", "yes_no": None}
+        )
+        == "about 40%"
+    )
+    assert (
+        answer_reference({"unanswerable": False, "extractive_spans": [], "free_form_answer": "", "yes_no": True})
+        == "Yes"
+    )
+    # yes_no False means a "No" answer; truthiness must not decide
+    assert (
+        answer_reference({"unanswerable": False, "extractive_spans": [], "free_form_answer": "", "yes_no": False})
+        == "No"
+    )
+    assert (
+        answer_reference({"unanswerable": False, "extractive_spans": [], "free_form_answer": "", "yes_no": None})
+        is None
+    )
+
+
+def test_references_loaded_per_answering_annotator(tmp_path):
+    papers = {
+        "paperR": make_paper(
+            "paperR",
+            "Abstract.",
+            [("S", [PARA_A])],
+            qas=[
+                make_qa(
+                    "qr1",
+                    "what is the answer?",
+                    [
+                        make_answer(evidence=[PARA_A], extractive_spans=["span one", "span two"]),
+                        make_answer(evidence=[PARA_A], free_form_answer="free form"),
+                        make_answer(evidence=[PARA_A], yes_no=True),
+                        make_answer(evidence=[PARA_A], yes_no=False),
+                        make_answer(unanswerable=True),
+                    ],
+                )
+            ],
+        )
+    }
+    path = tmp_path / "qasper-dev-v0.3.json"
+    write_split(path, papers)
+    split = load_split("dev", path)
+    (question,) = split.questions
+    assert question.references == ("span one, span two", "free form", "Yes", "No")
+    assert split.evidence_counts["answer_extractive"] == 1
+    assert split.evidence_counts["answer_free_form"] == 1
+    assert split.evidence_counts["answer_yes_no"] == 2  # True and False both count

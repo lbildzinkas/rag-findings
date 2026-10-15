@@ -493,6 +493,10 @@ def load_nq(paths, split: str = NQ_CONFIG) -> NqSplit:
     The collection is the subset's pages. Every annotator whose long
     answer is a `<P>` paragraph contributes that paragraph as its
     labelled span; short-answer spans are kept per annotator for R6.
+    Each question also carries reference answers for the reader stage
+    (never read by retrieval): precise questions keep every annotator's
+    short-answer texts and "Yes"/"No" answers, context questions the
+    long-answer paragraph of each annotator that gave one.
     """
     shard_paths = ensure_nq_shards(paths.data)
     ids_path = subset_ids_path(paths.root)
@@ -503,7 +507,13 @@ def load_nq(paths, split: str = NQ_CONFIG) -> NqSplit:
 
     documents: dict[str, Document] = {}
     questions: list[Question] = []
-    evidence_counts = {"long_answer_paragraph": 0, "short_answer_span": 0}
+    evidence_counts = {
+        "long_answer_paragraph": 0,
+        "short_answer_span": 0,
+        "reference_short_span": 0,
+        "reference_yes_no": 0,
+        "reference_long_answer": 0,
+    }
     for example in iter_examples(shard_paths):
         if example.question_id not in wanted:
             continue
@@ -514,7 +524,10 @@ def load_nq(paths, split: str = NQ_CONFIG) -> NqSplit:
 
         annotators: list[tuple[LabelledSpan, ...]] = []
         short_annotators: list[tuple[LabelledSpan, ...]] = []
-        for (start, end), shorts in zip(example.long_answers, example.short_answers, strict=True):
+        references: list[str] = []
+        for (start, end), shorts, yes_no in zip(
+            example.long_answers, example.short_answers, example.yes_no, strict=True
+        ):
             if start >= 0 and example.tokens[start] == "<P>":
                 span = span_over_tokens(page, start, end)
                 if span is not None:
@@ -530,6 +543,9 @@ def load_nq(paths, split: str = NQ_CONFIG) -> NqSplit:
                         )
                     )
                     evidence_counts["long_answer_paragraph"] += 1
+                    if example.query_type == CONTEXT:
+                        references.append(doc.text[span[0] : span[1]])
+                        evidence_counts["reference_long_answer"] += 1
             kept_shorts: list[LabelledSpan] = []
             for s_start, s_end in shorts:
                 span = span_over_tokens(page, s_start, s_end)
@@ -544,8 +560,17 @@ def load_nq(paths, split: str = NQ_CONFIG) -> NqSplit:
                         )
                     )
             if kept_shorts:
-                short_annotators.append(tuple(sorted(set(kept_shorts), key=lambda s: (s.start, s.end))))
-                evidence_counts["short_answer_span"] += len(kept_shorts)
+                deduped = tuple(sorted(set(kept_shorts), key=lambda s: (s.start, s.end)))
+                short_annotators.append(deduped)
+                evidence_counts["short_answer_span"] += len(deduped)
+            else:
+                deduped = ()
+            if example.query_type == PRECISE:
+                references.extend(span.quote for span in deduped)
+                evidence_counts["reference_short_span"] += len(deduped)
+                if yes_no >= 0:
+                    references.append("Yes" if yes_no == 1 else "No")
+                    evidence_counts["reference_yes_no"] += 1
 
         if not annotators:
             raise ValueError(f"subset question {example.question_id} has no paragraph long answer")
@@ -558,6 +583,7 @@ def load_nq(paths, split: str = NQ_CONFIG) -> NqSplit:
                 annotators=tuple(annotators),
                 query_type=example.query_type,
                 short_annotators=tuple(short_annotators),
+                references=tuple(references),
             )
         )
         documents[doc.doc_id] = doc

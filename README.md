@@ -88,7 +88,7 @@ The write-up's [limitations section](chunking/2026-10-14-v1-results.md#5-limitat
 - [`chunking/2026-10-14-v1-results.md`](chunking/2026-10-14-v1-results.md): the v1 results write-up; its figures are in [`chunking/figures/`](chunking/figures).
 - [`chunking/2026-10-10-chunk-size-vs-query-type.md`](chunking/2026-10-10-chunk-size-vs-query-type.md): the research report that motivated v1, covering the literature on chunk size versus query type, budget-matched evaluation, and a QASPER pilot.
 - [`results/`](results): the committed result tables (`qasper/`, `nq/`, `pooled/`, `routing/`); every number above comes from them.
-- [`configs/`](configs): the run configurations and the Natural Questions subset's id list.
+- [`configs/`](configs): the run configurations and the committed id lists (the Natural Questions subset, the v2 reader sample).
 - [`CONTEXT.md`](CONTEXT.md): the experiment's vocabulary.
 - [`docs/adr`](docs/adr): the settled design decisions. [ADR 0004](docs/adr/0004-run-v1-on-the-settled-question-sets-and-chunking-grid-superseding-the-reports-proposal.md) supersedes the chunking grid proposed in the research report.
 - [`src/rag`](src/rag) and [`tests`](tests): the experiment code and its unit tests.
@@ -187,6 +187,17 @@ It takes seconds and regenerates the committed tables under `results/routing/`, 
 - `r9-headroom.md` (R9): which chunking the oracle router picks, by query type, at 1024 tokens.
 
 The committed tables read the QASPER and Natural Questions grid runs (`runs: [qasper/grid, nq/grid]`), pooled per question across the two runs, each dataset's documents resampled as its own clusters.
+
+### Reader sample and the answers stage
+
+The v2 reader stage's offline half (ADR 0009). `reader-sample` draws the 1,000-question reader sample - 500 QASPER questions filled by whole papers in seeded order (a paper that would overshoot is skipped), 250 precise and 250 context Natural Questions pages - and commits it as ids only (`configs/v2/reader-sample.txt`, reproducible from its seed; `--check` verifies the committed list against a fresh draw). The loaders also carry each question's reference answers (QASPER: each answering annotator's extractive spans joined with ", ", free-form answer, or "Yes"/"No"; NQ precise: the short-answer texts and yes/no answers; NQ context: the long-answer paragraph) - a field the retrieval path never reads.
+
+```sh
+uv run rag reader-sample --check   # verify the committed sample against a fresh draw
+uv run rag answers configs/v2/answers.yaml --dry-run
+```
+
+`answers --dry-run` assembles every reader setup from the runs' `packed.parquet` at the budget view's primary cell (1024 tokens, collection search, nomic): section-aware, the search-all and confidence routers, late-128 and late-256, contextual-256 and its prefix-in-budget side variant, the oracle router (per question, the chunking with the highest recall, ties to the smaller chunk) and the no-retrieval floor. It renders the fixed reader prompt (whose template hash is recorded before any answer exists), reports prompt token counts per setup and dataset without calling a model, and fails when any prompt exceeds the budget plus the template. Setups whose packed spans have not landed yet (their own tickets deliver them) are reported as pending. The answer scoring (answer F1 for QASPER, short-answer match with contains-a-reference as a secondary column for NQ precise, token F1 for NQ context, all after SQuAD-style normalisation), the reader interface with its SQLite response cache under `data/`, and the R14 scaffold (answer score per setup and dataset, document-clustered CIs, the difference from section-aware) are exercised by the tests; the reader run fills the table.
 
 ## Data, models and licences
 

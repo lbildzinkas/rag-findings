@@ -14,7 +14,10 @@ datasets that have them:
   Questions: short answer means precise, long-answer-only means context);
   the passage-count rule in `rag.query_type` covers the rest;
 - `short_annotators`, per-annotator short-answer spans kept for a
-  secondary metric (R6), never for the primary recall and precision.
+  secondary metric (R6), never for the primary recall and precision;
+- `references`, the dataset's reference answers for the reader stage's
+  answer score: empty by default, filled by the loaders, and never read
+  by retrieval, so it has no effect on retrieval results.
 """
 
 from __future__ import annotations
@@ -44,6 +47,7 @@ class Question:
     annotators: tuple[tuple[LabelledSpan, ...], ...]
     query_type: str | None = None
     short_annotators: tuple[tuple[LabelledSpan, ...], ...] = ()
+    references: tuple[str, ...] = ()
 
 
 def question_query_type(question: Question) -> str:

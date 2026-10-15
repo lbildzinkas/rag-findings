@@ -63,13 +63,15 @@ def make_answer(
     evidence: list[str] | None = None,
     unanswerable: bool = False,
     extractive_spans: list[str] | None = None,
+    free_form_answer: str = "",
+    yes_no: bool | None = None,
 ) -> dict:
     return {
         "answer": {
             "unanswerable": unanswerable,
             "extractive_spans": extractive_spans or [],
-            "yes_no": None,
-            "free_form_answer": "",
+            "yes_no": yes_no,
+            "free_form_answer": free_form_answer,
             "evidence": evidence or [],
             "highlighted_evidence": [],
         }
