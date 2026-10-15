@@ -488,7 +488,8 @@ def run_prefixes(
     store = PrefixStore(paths.prefixes)
     try:
         sample = estimate_sample(items, estimate, cfg.seed) if estimate is not None else items
-        if any(item.doc.source_hash not in store.done(cfg.model_key, prompt.sha256) for item in sample):
+        done = store.done(cfg.model_key, prompt.sha256)
+        if any(item.doc.source_hash not in done for item in sample):
             if writer is None:
                 from .prefix_model import load_writer
 
