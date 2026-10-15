@@ -1,0 +1,15 @@
+kind: contenders
+# R12: late chunking (ADR 0005, ADR 0007) next to the fixed chunkings with
+# the same spans and the v2 baseline's best single chunking
+table: r12
+title: late chunking next to fixed-128, fixed-256 and section-aware
+runs: [qasper/v2-late, nq/v2-late]
+scope: collection
+pipeline: hybrid-rerank
+embedder: nomic
+chunkings: [section-aware, fixed-128, late-128, fixed-256, late-256]
+# same spans, different vectors
+pairs:
+  - [late-128, fixed-128]
+  - [late-256, fixed-256]
+run_name: v2-late

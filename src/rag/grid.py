@@ -22,8 +22,9 @@ Parquet, one row per pipeline and embedder (`pipeline`, `embedder`):
   precision (null when not scored), whether the top-N cap bound, the
   short-answer span recall for NQ precise questions (null elsewhere), the
   share of the chunking's chunks longer than the embedder's input limit
-  (null without an embedder) and whether packing used the production
-  line's unreranked tail (null for pipelines without the reranker);
+  (null without an embedder; 0 for a late chunking, whose windows never
+  exceed the input) and whether packing used the production line's
+  unreranked tail (null for pipelines without the reranker);
 - packed.parquet (only for cells under `export_packed`): one row per
   packed chunk of the exported (view, budget, scope) cells, with the
   question, pipeline, embedder, chunking, the chunk's rank and its
@@ -56,6 +57,7 @@ from .chunking import Chunk, chunk_text, fixed_windows, section_aware, small_to_
 from .config import PRODUCTION_LINE, ChunkingSpec, GridConfig, config_hash
 from .documents import Document
 from .labels import question_query_type
+from .late import block_spans
 from .metrics import score_fixed_k, score_question
 from .models import EMBEDDERS, RERANKER, Models, ModelSource
 from .packing import pack, pack_small_to_big
@@ -387,6 +389,7 @@ def _model_manifest(cfg: GridConfig) -> dict:
             "max_input_tokens": EMBEDDERS[name].max_tokens,
             "document_prefix": EMBEDDERS[name].document_prefix,
             "query_prefix": EMBEDDERS[name].query_prefix,
+            **({"model_kwargs": dict(EMBEDDERS[name].model_kwargs)} if EMBEDDERS[name].model_kwargs else {}),
         }
         for name in cfg.embedders
     }
@@ -437,12 +440,19 @@ def run_grid(
     chunkings: list[_Chunking] = []
     chunk_counts: dict[str, int] = {}
     shared_characters: dict[str, int] = {}
+    late: list[tuple[str, list]] = []
     for spec in cfg.chunkings:
         chunking, shared = _build_chunking(spec, documents, tokenized, run_dir / "lance")
-        retriever.index_chunking(spec.name, [u for doc_id in sorted(documents) for u in chunking.units_by_doc[doc_id]])
+        units = [u for doc_id in sorted(documents) for u in chunking.units_by_doc[doc_id]]
+        if spec.late:
+            late.append((spec.name, units))
+        else:
+            retriever.index_chunking(spec.name, units)
         chunkings.append(chunking)
         chunk_counts[spec.name] = sum(len(units) for units in chunking.units_by_doc.values())
         shared_characters[spec.name] = shared
+    if late:  # one model pass per window serves every late chunking
+        retriever.index_late(late, {doc_id: block_spans(tokenized[doc_id]) for doc_id in sorted(documents)})
     indexed = time.monotonic()
 
     questions = _Columns(QUESTIONS_SCHEMA)
@@ -542,6 +552,8 @@ def run_grid(
         }
         manifest["reranker"] = retriever.stats.as_dict()
         manifest["embeddings"] = retriever.embed_stats.as_dict()
+        if retriever.late_windows:
+            manifest["late_windows"] = {name: stats.as_dict() for name, stats in retriever.late_windows.items()}
         manifest["phase_seconds"] = {
             "load_embed_and_index": round(indexed - started, 3),
             "retrieve_rerank_and_score": round(retrieved - indexed, 3),
