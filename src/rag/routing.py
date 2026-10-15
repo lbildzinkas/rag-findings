@@ -131,6 +131,8 @@ def parse_headroom_config(raw: dict[str, Any]) -> HeadroomConfig:
         if raw.get("kind") != "headroom":
             raise ValueError("a headroom config needs `kind: headroom`")
         gate = raw.get("gate")
+        if gate is not None and not gate["datasets"]:
+            raise ValueError("gate datasets must not be empty")
         primary_budget = int(raw["primary_budget"]) if "primary_budget" in raw else None
         if gate is not None:
             gate_budget = int(gate["budget"])
@@ -165,8 +167,6 @@ def parse_headroom_config(raw: dict[str, Any]) -> HeadroomConfig:
         raise ValueError("interaction_reference must be one of the chunkings")
     if cfg.view not in VIEWS:
         raise ValueError(f"view must be one of {list(VIEWS)}, got {cfg.view}")
-    if cfg.gated and not cfg.gate_datasets:
-        raise ValueError("gate datasets must not be empty")
     if cfg.top_n <= 0 or cfg.primary_budget <= 0 or cfg.resamples <= 0:
         raise ValueError("top_n, primary budget and resamples must be positive")
     if not 0 < cfg.confidence < 1:
@@ -466,7 +466,7 @@ def gate_verdict(cfg: HeadroomConfig, results: list[CellResult]) -> list[str]:
         pipelines = sorted({r.pipeline for r in results})
         return [
             f"**Gate not judged:** these results hold no production-line pipeline (`{cfg.production_line}`) at "
-            f"{cfg.primary_budget} tokens in the production view; pipelines present: "
+            f"{cfg.primary_budget} tokens in the {cfg.view} view; pipelines present: "
             + ", ".join(f"`{p}`" for p in pipelines)
             + ". The verdict comes from the re-run on the full results."
         ]
@@ -559,7 +559,7 @@ def _r7(cfg: HeadroomConfig, results: list[CellResult], header: list[str]) -> st
         lines += ["## Router gate (pre-registered)", ""]
         lines += [
             (
-                f"Rule: build the router in v2 if, on the production line, in the production view, at the primary "
+                f"Rule: build the router in v2 if, on the production line, in the {cfg.view} view, at the primary "
                 f"budget of {cfg.primary_budget} tokens, pooled over {' + '.join(cfg.gate_datasets)}, either embedder's "
                 f"routing headroom is at least +{cfg.min_headroom:.4f} retrieval recall with a {cfg.confidence:.0%} CI "
                 "that excludes 0."

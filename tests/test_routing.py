@@ -260,6 +260,7 @@ def test_headroom_reads_the_run_directory_the_grid_writer_produces(tmp_path: Pat
         {"runs": []},
         {"resamples": 0},
         {"gate": {**CONFIG["gate"], "confidence": 1.5}},
+        {"gate": {**CONFIG["gate"], "datasets": []}},
         {"gate": {"pipeline": "hybrid-rerank"}},
     ],
 )

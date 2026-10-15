@@ -181,3 +181,4 @@ Production view: top-N cap 8; fair view: no cap; budget view: top-N cap 20. The 
 `truncated chunks`: share of the chunking's chunks longer than the embedder's input limit (in its own tokens, task prefix included), which it embeds truncated; ‡ marks a share above zero.
 `tail used`: share of questions whose packing went past the reranked top 30 into the unreranked tail (fused order).
 †: the top-N cap binds for at least half of the questions (see R2).
+Re-run regression: the production and fair columns reproduce v1's nomic production line (the v1 grid's R5) within ±0.001, not exactly: two questions' top-ranked chunk of 512 or more tokens flipped on the re-run (a context question at fixed-512@512 and section-aware@512, a precise question at fixed-1024@1024; each affected cell moves 0.0010 recall), consistent with a near-tied embedding or reranker score recomputed on a cache miss; every other cell matches byte-for-byte.

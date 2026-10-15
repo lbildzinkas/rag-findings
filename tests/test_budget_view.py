@@ -2,8 +2,9 @@
 per-question results, the cap binding exactly where it should, packed.parquet
 written for the exported cells, re-scoring its spans reproducing the
 results' recall, the embedding cache counts in the manifest, the v2 configs
-parsing, v1 config hashes unchanged, and the headroom analysis reading the
-budget view without a gate block."""
+parsing, v1 config hashes unchanged, the headroom analysis reading the
+budget view without a gate block, and a gate judged in the budget view
+naming that view in its rule and verdict."""
 
 from __future__ import annotations
 
@@ -18,7 +19,7 @@ from rag.config import config_hash, load_any_config, parse_grid_config
 from rag.grid import PACKED_SCHEMA, run_grid
 from rag.metrics import score_question
 from rag.paths import Paths
-from rag.routing import parse_headroom_config, run_headroom
+from rag.routing import analyse, gate_verdict, load_results, parse_headroom_config, run_headroom
 from rag.run import gold_token_sets, load_datasets
 from rag.tokens import TokenText
 from tests.conftest import FakeEncoding
@@ -251,3 +252,33 @@ def test_headroom_reads_the_budget_view_without_a_gate(tmp_path):
     assert "Router gate" not in r7 and "Verdict" not in r7
     assert "| qasper | hybrid-rerank | nomic | budget | 32 |" in r7
     assert "| qasper | hybrid-rerank | nomic | fair | 32 |" in r7  # the fair view is analysed alongside
+
+
+def test_a_gate_in_a_non_production_view_names_that_view(tmp_path):
+    """The pre-registered rule and the verdict must say where the gate was
+    judged: the analysed view, not the production view it was written for."""
+    write_results(
+        Paths(root=tmp_path).run_dir("grid", "qasper"),
+        {"qasper": 10},
+        [("bm25", None)],
+        budget_top_n=20,
+    )
+    config = {
+        **CONFIG,
+        "view": "budget",
+        "top_n": 20,
+        "gate": {**CONFIG["gate"], "pipeline": "bm25", "datasets": ["qasper"], "budget": 32},
+        "resamples": 50,
+    }
+    cfg = parse_headroom_config(config)
+    assert cfg.gated
+    outcome = run_headroom(cfg, Paths(root=tmp_path))
+    assert outcome.verdict[0].startswith("Judged on the production line (`bm25`), budget view")
+    r7 = (tmp_path / "results" / "routing" / "r7-headroom.md").read_text(encoding="utf-8")
+    assert "in the budget view, at the primary budget of 32 tokens" in r7
+
+    no_line = {**config, "gate": {**config["gate"], "pipeline": "hybrid-rerank"}}
+    cfg2 = parse_headroom_config(no_line)
+    verdict = gate_verdict(cfg2, analyse(cfg2, load_results(cfg2, Paths(root=tmp_path))))
+    assert verdict[0].startswith("**Gate not judged:**")
+    assert "tokens in the budget view" in verdict[0]
