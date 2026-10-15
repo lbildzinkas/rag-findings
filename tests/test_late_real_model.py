@@ -55,18 +55,65 @@ def _snapshot_dir(repo: str, revision: str) -> Path:
 
 def _model_downloaded() -> bool:
     weights = (_snapshot_dir(_NOMIC.model_id, _NOMIC.revision) / "model.safetensors").is_file()
-    code_ref = (hf_cache_dir(_DATA) / "hub" / f"models--{_NOMIC.code_repo.replace('/', '--')}" / "refs" / "main").is_file()
+    code_ref = (
+        hf_cache_dir(_DATA) / "hub" / f"models--{_NOMIC.code_repo.replace('/', '--')}" / "refs" / "main"
+    ).is_file()
     return weights and code_ref
 
 
-pytestmark = pytest.mark.skipif(not _model_downloaded(), reason="the pinned nomic model is not downloaded; run `uv run rag setup`")
+pytestmark = pytest.mark.skipif(
+    not _model_downloaded(), reason="the pinned nomic model is not downloaded; run `uv run rag setup`"
+)
 
-VOCAB = (
-    "retrieval recall precision chunking embedding transformer attention token document corpus query "
-    "router headroom baseline section paragraph window pooling cosine similarity hybrid fusion reranker "
-    "budget packing span offset context surroundings passage wikipedia paper experiment measure estimate "
-    "kerberos tickets session keys protocol network latency throughput memory gradient descent optimizer"
-).split()
+VOCAB = [
+    "retrieval",
+    "recall",
+    "precision",
+    "chunking",
+    "embedding",
+    "transformer",
+    "attention",
+    "token",
+    "document",
+    "corpus",
+    "query",
+    "router",
+    "headroom",
+    "baseline",
+    "section",
+    "paragraph",
+    "window",
+    "pooling",
+    "cosine",
+    "similarity",
+    "hybrid",
+    "fusion",
+    "reranker",
+    "budget",
+    "packing",
+    "span",
+    "offset",
+    "context",
+    "surroundings",
+    "passage",
+    "wikipedia",
+    "paper",
+    "experiment",
+    "measure",
+    "estimate",
+    "kerberos",
+    "tickets",
+    "session",
+    "keys",
+    "protocol",
+    "network",
+    "latency",
+    "throughput",
+    "memory",
+    "gradient",
+    "descent",
+    "optimizer",
+]
 
 
 def _paragraph(seed: int, sentences: int) -> str:
@@ -98,8 +145,10 @@ def test_a_window_holding_a_single_chunk_reproduces_the_independent_vector():
     doc = build_document("single-chunk-check", "", [("Body", [_paragraph(seed, 90) for seed in range(4)])])
     tokens = TokenText(doc.text, encoding)
     report = [
-        f"real model: {embedder.spec.model_id} @ {embedder.spec.revision[:12]} "
-        f"| model_kwargs {dict(embedder.spec.model_kwargs)}"
+        (
+            f"real model: {embedder.spec.model_id} @ {embedder.spec.revision[:12]} "
+            f"| model_kwargs {dict(embedder.spec.model_kwargs)}"
+        )
     ]
     for size in (128, 256):
         chunks = fixed_windows(doc, tokens, size)[:CHUNKS_PER_SIZE]
@@ -113,7 +162,7 @@ def test_a_window_holding_a_single_chunk_reproduces_the_independent_vector():
             rule.append(late_vectors(text, [[(0, len(text))]], windows, embedder)[0][0])  # the shipped pooling rule
             mechanism.append(_unit(embedder.token_embeddings(text).vectors))  # every token the model read
 
-        def cosines(vectors: list[np.ndarray]) -> list[float]:
+        def cosines(vectors: list[np.ndarray], independent: list[np.ndarray] = independent) -> list[float]:
             return sorted(float(np.dot(v, i)) for v, i in zip(vectors, independent, strict=True))
 
         for name, values in (

@@ -18,7 +18,7 @@ Setups (config `kind: answers`):
 - `none`: the no-retrieval floor, the same prompt without a context.
 
 A setup whose source runs are not on disk yet is reported as pending:
-the late chunkings and the contextual chunkings arrive with their own
+the contextual chunkings arrive with their own
 tickets, and this stage covers them when they land.
 
 Answer scores live in runs/<run_name>/answers.parquet (one row per
