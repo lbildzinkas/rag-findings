@@ -7,9 +7,9 @@ decimals; nothing run-specific (time, versions) enters a table, so the
 same config over the same data regenerates them byte-identically.
 
 - R2: chunking x budget, retrieval recall and precision, production view
-  and fair view side by side, plus the budget view (top-N cap 20, when
-  `budget_top_n` is set) and the side table with the smaller top-N cap;
-  collection search.
+  and fair view side by side, plus the budget view (top-N cap
+  `budget_top_n`, v2: 20, when it is set) and the side table with the
+  smaller top-N cap; collection search.
 - R2w: R2 with search within the question's own document.
 - R3: chunking x budget, retrieval recall per query type and the
   difference between types (context minus precise); collection search.
