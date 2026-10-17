@@ -11,6 +11,14 @@ production cap. A fixed chunking whose chunk is bigger than the budget
 is not scored at that budget. Retrieval sees only the question text,
 never its query type.
 
+A contextual chunking (see rag.contextual) is searched by prefix and
+chunk text, and its prefixes are read from the prefix store before any
+search (the run fails when one is missing). It packs, scores and exports
+the chunk's own span and tokens; its side variant (`prefix_in_budget`)
+packs by the tokens of prefix and chunk, which are also its retrieved
+tokens (precision's denominator) and its exported `tokens`, while recall
+is still scored on the chunk's span.
+
 Per-question results go to runs/<dataset>/<run_name>/ (git-ignored) as
 Parquet, one row per pipeline and embedder (`pipeline`, `embedder`):
 
@@ -52,9 +60,10 @@ from pathlib import Path
 import pyarrow as pa
 import pyarrow.parquet as pq
 
-from .cache import Cache
+from .cache import Cache, SpanKey
 from .chunking import Chunk, chunk_text, fixed_windows, section_aware, small_to_big_children, verify_tiling
 from .config import PRODUCTION_LINE, ChunkingSpec, GridConfig, config_hash
+from .contextual import key_suffix, load_prefixes, search_text
 from .documents import Document
 from .labels import question_query_type
 from .late import block_spans
@@ -135,7 +144,7 @@ PACKED_SCHEMA = pa.schema(
         ("rank", pa.int32()),  # position in the packed list, 1-based
         ("start", pa.int32()),  # character offset into the document's canonical text
         ("end", pa.int32()),
-        ("tokens", pa.int32()),
+        ("tokens", pa.int32()),  # the tokens packing counted: the side variant's include its prefix
     ]
 )
 
@@ -159,18 +168,26 @@ class _Columns:
 @dataclass
 class _Chunking:
     """One chunking over the collection: its indexed units (children for
-    small-to-big), its parents (small-to-big only), and its BM25 index."""
+    small-to-big), its parents (small-to-big only), and its BM25 index;
+    for a contextual chunking its prefixes by span, and for the side
+    variant each unit's budget tokens (prefix and chunk) by (doc_id, index)."""
 
     spec: ChunkingSpec
     units_by_doc: dict[str, list[Chunk]]
     parents_by_doc: dict[str, list[Chunk]]
     parents: dict[tuple[str, int], Chunk]
     index: BM25Index
+    prefixes: dict[SpanKey, str] = field(default_factory=dict)
+    budget_tokens: dict[tuple[str, int], int] | None = None
+
+    def tokens(self, chunk: Chunk) -> int:
+        """The tokens a packed chunk takes from the budget."""
+        return chunk.n_tokens if self.budget_tokens is None else self.budget_tokens[(chunk.doc_id, chunk.index)]
 
     def packer(self, ranked: Sequence[Chunk], budget: int, top_n: int | None) -> list[Chunk]:
         if self.spec.method == "small_to_big":
             return pack_small_to_big(ranked, self.parents, budget, top_n)
-        return pack(ranked, budget, top_n)
+        return pack(ranked, budget, top_n, cost=None if self.budget_tokens is None else self.tokens)
 
     def returned_units(self, ranked: Sequence[Chunk]) -> list[Chunk]:
         """Retrieved units in rank order, without a budget: small-to-big
@@ -203,11 +220,15 @@ def _chunk_document(spec: ChunkingSpec, doc: Document, tokens: TokenText) -> tup
 
 
 def _build_chunking(
-    spec: ChunkingSpec, documents: dict[str, Document], tokenized: dict[str, TokenText], lance_dir: Path
+    spec: ChunkingSpec,
+    documents: dict[str, Document],
+    tokenized: dict[str, TokenText],
+    lance_dir: Path,
+    prefix_store: Path | None = None,
+    encoding=None,
 ) -> tuple[_Chunking, int]:
     units_by_doc: dict[str, list[Chunk]] = {}
     parents_by_doc: dict[str, list[Chunk]] = {}
-    texts: dict[str, str] = {}
     shared_characters = 0
     for doc_id in sorted(documents):
         doc, tokens = documents[doc_id], tokenized[doc_id]
@@ -217,15 +238,61 @@ def _build_chunking(
             verify_tiling(doc, tokens, doc_parents)
             parents_by_doc[doc_id] = doc_parents
         units_by_doc[doc_id] = units
-        for unit in units:
-            texts[f"{doc_id}:{unit.index}"] = chunk_text(doc, unit)
+    all_units = [u for doc_id in sorted(units_by_doc) for u in units_by_doc[doc_id]]
+    prefixes: dict[SpanKey, str] = {}
+    if spec.prefixes is not None:
+        if prefix_store is None:
+            raise ValueError(f"chunking {spec.name}: contextual chunks are indexed by grid runs only")
+        spans = [(u.doc_id, u.start, u.end) for u in all_units]
+        prefixes = load_prefixes(prefix_store, spec.prefixes, documents, spans, spec.name)
+    texts: dict[str, str] = {}
+    budget_tokens: dict[tuple[str, int], int] | None = {} if spec.prefix_in_budget else None
+    for unit in all_units:
+        doc = documents[unit.doc_id]
+        text = chunk_text(doc, unit)
+        if prefixes:
+            text = search_text(prefixes[(doc.source_hash, unit.start, unit.end)], text)
+        if budget_tokens is not None:
+            budget_tokens[(unit.doc_id, unit.index)] = len(TokenText(text, encoding))
+        texts[f"{unit.doc_id}:{unit.index}"] = text
     index = BM25Index(lance_dir, table=spec.name)
-    index.build([u for doc_id in sorted(units_by_doc) for u in units_by_doc[doc_id]], texts)
+    index.build(all_units, texts)
     parents = {(p.doc_id, p.index): p for doc_parents in parents_by_doc.values() for p in doc_parents}
     chunking = _Chunking(
-        spec=spec, units_by_doc=units_by_doc, parents_by_doc=parents_by_doc, parents=parents, index=index
+        spec=spec,
+        units_by_doc=units_by_doc,
+        parents_by_doc=parents_by_doc,
+        parents=parents,
+        index=index,
+        prefixes=prefixes,
+        budget_tokens=budget_tokens,
     )
     return chunking, shared_characters
+
+
+def _contextual_manifest(chunkings: Sequence[_Chunking]) -> dict:
+    """Each contextual chunking's prefix set, cache-key suffix and, for the
+    side variant, the budget tokens its prefixes add per chunk."""
+    out = {}
+    for chunking in chunkings:
+        spec = chunking.spec
+        if spec.prefixes is None:
+            continue
+        entry: dict = {
+            "prefix_set": spec.prefixes.as_dict(),
+            "key_suffix": key_suffix(spec.prefixes),
+            "prefixes": len(chunking.prefixes),
+            "prefix_in_budget": spec.prefix_in_budget,
+        }
+        if chunking.budget_tokens is not None:
+            added = [chunking.tokens(u) - u.n_tokens for units in chunking.units_by_doc.values() for u in units]
+            entry["budget_tokens_added"] = {
+                "mean": round(sum(added) / len(added), 2) if added else 0.0,
+                "min": min(added, default=0),
+                "max": max(added, default=0),
+            }
+        out[spec.name] = entry
+    return out
 
 
 def _views(cfg: GridConfig) -> list[tuple[str, int | None]]:
@@ -322,7 +389,8 @@ def _score_ranking(
         for view, top_n in _views(cfg):
             packed_chunks = fair if top_n is None else chunking.packer(ranked, budget, top_n)
             used_tail = None if head is None else len(packed_chunks) > len(chunking.packer(head, budget, top_n))
-            score = score_question(gold, packed_chunks, question.doc_id)
+            retrieved = None if chunking.budget_tokens is None else sum(chunking.tokens(c) for c in packed_chunks)
+            score = score_question(gold, packed_chunks, question.doc_id, retrieved=retrieved)
             short_recall = score_question(short_gold, packed_chunks, question.doc_id).recall if short_gold else None
             results.add(
                 **cell,
@@ -349,7 +417,7 @@ def _score_ranking(
                         rank=rank,
                         start=chunk.start,
                         end=chunk.end,
-                        tokens=chunk.n_tokens,
+                        tokens=chunking.tokens(chunk),
                     )
 
 
@@ -441,16 +509,19 @@ def run_grid(
     chunk_counts: dict[str, int] = {}
     shared_characters: dict[str, int] = {}
     late: list[tuple[str, list]] = []
-    for spec in cfg.chunkings:
-        chunking, shared = _build_chunking(spec, documents, tokenized, run_dir / "lance")
-        units = [u for doc_id in sorted(documents) for u in chunking.units_by_doc[doc_id]]
-        if spec.late:
-            late.append((spec.name, units))
-        else:
-            retriever.index_chunking(spec.name, units)
+    for spec in cfg.chunkings:  # every chunking (and its prefixes) first, so a missing prefix fails early
+        chunking, shared = _build_chunking(spec, documents, tokenized, run_dir / "lance", paths.prefixes, encoding)
+        if spec.prefixes is not None:
+            retriever.contextual[spec.name] = (key_suffix(spec.prefixes), chunking.prefixes)
         chunkings.append(chunking)
         chunk_counts[spec.name] = sum(len(units) for units in chunking.units_by_doc.values())
         shared_characters[spec.name] = shared
+    for chunking in chunkings:
+        units = [u for doc_id in sorted(documents) for u in chunking.units_by_doc[doc_id]]
+        if chunking.spec.late:
+            late.append((chunking.spec.name, units))
+        else:
+            retriever.index_chunking(chunking.spec.name, units)
     if late:  # one model pass per window serves every late chunking
         retriever.index_late(late, {doc_id: block_spans(tokenized[doc_id]) for doc_id in sorted(documents)})
     indexed = time.monotonic()
@@ -559,6 +630,8 @@ def run_grid(
             "retrieve_rerank_and_score": round(retrieved - indexed, 3),
             "write": round(time.monotonic() - retrieved, 3),
         }
+    if any(spec.contextual for spec in cfg.chunkings):
+        manifest["contextual"] = _contextual_manifest(chunkings)
     (run_dir / "manifest.json").write_text(json.dumps(manifest, sort_keys=True, indent=2) + "\n", encoding="utf-8")
 
     print(f"run {run_name}: {n_questions} questions x {len(chunkings)} chunkings x {len(cfg.budgets)} budgets")

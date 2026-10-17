@@ -12,6 +12,10 @@ Small-to-big matches on children and returns each matched child's
 parent when the parent fits the remaining budget, else the child itself;
 it never returns the same text twice.
 
+A chunk costs its own tokens. The side variant of contextual chunks
+passes `cost`, the tokens its search text (prefix and chunk) takes, so
+the prefix counts against the budget too.
+
 `pack_union` (v2) is the overlap-aware packing of search-all routing,
 whose ranked list mixes the chunkings: chunks from different chunkings
 overlap, so packing counts only the tokens not already packed.
@@ -19,7 +23,7 @@ overlap, so packing counts only the tokens not already packed.
 
 from __future__ import annotations
 
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 
 from .chunking import Chunk
 
@@ -31,13 +35,15 @@ def _check(budget: int, top_n: int | None) -> None:
         raise ValueError(f"top_n must be positive, got {top_n}")
 
 
-def pack(ranked: Sequence[Chunk], budget: int, top_n: int | None) -> list[Chunk]:
+def pack(
+    ranked: Sequence[Chunk], budget: int, top_n: int | None, cost: Callable[[Chunk], int] | None = None
+) -> list[Chunk]:
     """Return the packed chunks, in ranked order.
 
-    Invariants: whole chunks only (never cut), the sum of n_tokens never
-    exceeds `budget`, and at most `top_n` chunks are returned (no cap when
-    `top_n` is None, the fair view). A chunk larger than the whole budget
-    is never packed.
+    Invariants: whole chunks only (never cut), the sum of the chunks' costs
+    (n_tokens unless `cost` is given) never exceeds `budget`, and at most
+    `top_n` chunks are returned (no cap when `top_n` is None, the fair
+    view). A chunk costing more than the whole budget is never packed.
     """
     _check(budget, top_n)
     packed: list[Chunk] = []
@@ -47,10 +53,11 @@ def pack(ranked: Sequence[Chunk], budget: int, top_n: int | None) -> list[Chunk]
             break
         if used == budget:
             break
-        if chunk.n_tokens > budget - used:
+        tokens = chunk.n_tokens if cost is None else cost(chunk)
+        if tokens > budget - used:
             continue
         packed.append(chunk)
-        used += chunk.n_tokens
+        used += tokens
     return packed
 
 

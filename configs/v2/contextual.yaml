@@ -1,0 +1,22 @@
+kind: contenders
+# R13: contextual chunks (ADR 0005, ADR 0009) and their prefix-in-budget side
+# variant next to fixed-256, whose spans they share, and the v2 baseline's
+# best single chunking
+table: r13
+title: contextual chunks next to fixed-256 and section-aware
+runs: [qasper/v2-contextual, nq/v2-contextual]
+scope: collection
+pipeline: hybrid-rerank
+embedder: nomic
+chunkings: [section-aware, fixed-256, contextual-256, contextual-256-prefixed]
+# same spans, searched with their prefixes; the side variant also spends budget on them
+pairs:
+  - [contextual-256, fixed-256]
+  - [contextual-256-prefixed, contextual-256]
+run_name: v2-contextual
+notes:
+  - >-
+    contextual-256 packs, scores and hands the reader the chunk text only, so the budget
+    counts only its chunk tokens. contextual-256-prefixed ranks the same way, but packing
+    counts its prefix, blank line and chunk tokens against the budget and those tokens are
+    its retrieved text, precision's denominator; recall is still scored on the chunk's span.
