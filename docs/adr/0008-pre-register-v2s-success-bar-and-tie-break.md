@@ -7,3 +7,7 @@ A contender passes if its retrieval recall beats section-aware by at least +0.02
 ## Amendment (2026-10-17): the answer guard no longer applies
 
 No contender reached the retrieval part of the bar: every one scored below section-aware in pooled retrieval recall at 1,024 tokens in the budget view, the closest being contextual chunks at 0.0179 below. The answer-score guard (no worse than section-aware by more than 0.01) only ever decided between contenders that pass on retrieval, so it is dropped, and the reader stage reads section-aware, the oracle router and no retrieval only (see the amendment to ADR 0009). The bar and the tie-break above are unchanged, and the formal verdict against them, with its confidence intervals, is still to be judged.
+
+## Amendment (2026-10-18): one contender clears the retrieval part of the bar
+
+Section-aware-titles (issue 36) - section-aware's spans indexed with the dataset's own document and section titles - is the first contender to pass the retrieval part: +0.0228 pooled recall in the budget view at 1,024 tokens, with a 95% CI [+0.0128, +0.0331] excluding 0 and neither dataset alone below -0.01 (R17). The answer-score guard stays dropped as amended above: the reader stage's three setups were fixed before this contender ran. The other contenders' retrieval results are final and below section-aware, so only one contender passes and the tie-break does not choose; the formal verdict against the bar, with its confidence intervals, is still to run.
