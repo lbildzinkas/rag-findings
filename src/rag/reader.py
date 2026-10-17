@@ -9,11 +9,15 @@ no-retrieval floor uses the same template with the context section and
 every manifest before any answer exists, and tests/test_reader.py pins
 it, so changing the prompt is a visible change.
 
-The reader itself is an interface: `read(prompt) -> answer`. A
-`CachedReader` wraps a backend model with the SQLite response cache
-under data/ (keyed by model, settings hash and prompt hash), so an
-interrupted run resumes free; a `FakeReader` serves tests. The model
-client arrives with the reader run.
+The reader itself is an interface: `read(prompt) -> answer`, or a
+`Reading` (the answer plus its call record: latency, token counts,
+finish reason). A `CachedReader` wraps a backend model with the SQLite
+response cache under data/ (keyed by model, settings hash and prompt
+hash; the call record is stored beside the answer), so an interrupted
+run resumes free and a warm re-run reports the original latencies; a
+`LazyReader` loads the backend only on the first cache miss, so a warm
+re-run never loads the model; a `FakeReader` serves tests. The model
+client is rag.reader_model (local, MLX).
 """
 
 from __future__ import annotations
@@ -21,8 +25,10 @@ from __future__ import annotations
 import hashlib
 import json
 import sqlite3
+from collections.abc import Callable
+from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Protocol
+from typing import Any, Protocol
 
 INSTRUCTION = "Answer the question from the context only, briefly."
 SHORT_INSTRUCTION = "Give a short answer."
@@ -76,9 +82,21 @@ def render_prompt(question: str, chunks: tuple[str, ...], short: bool, retrieval
     return "\n".join(lines)
 
 
+@dataclass(frozen=True)
+class Reading:
+    """One answer and its call record (latency, token counts, finish
+    reason; empty for a backend that records none). `cached` is True when
+    the answer came from the response cache, not a model call."""
+
+    answer: str
+    meta: dict[str, Any] = field(default_factory=dict)
+    cached: bool = False
+
+
 class ResponseCache:
     """SQLite cache of reader answers under data/, keyed by model, settings
-    hash and prompt hash (git-ignored; holds answer text, never keys)."""
+    hash and prompt hash, with each call's record as JSON (git-ignored;
+    holds answer text, never keys)."""
 
     def __init__(self, path: Path):
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -87,7 +105,8 @@ class ResponseCache:
             """
             CREATE TABLE IF NOT EXISTS responses (
                 model TEXT NOT NULL, settings_hash TEXT NOT NULL, prompt_hash TEXT NOT NULL,
-                answer TEXT NOT NULL, PRIMARY KEY (model, settings_hash, prompt_hash)
+                answer TEXT NOT NULL, meta TEXT NOT NULL DEFAULT '{}',
+                PRIMARY KEY (model, settings_hash, prompt_hash)
             ) WITHOUT ROWID;
             """
         )
@@ -95,25 +114,34 @@ class ResponseCache:
     def close(self) -> None:
         self._db.close()
 
-    def get(self, model: str, settings: str, prompt: str) -> str | None:
+    def get_reading(self, model: str, settings: str, prompt: str) -> Reading | None:
         row = self._db.execute(
-            "SELECT answer FROM responses WHERE model = ? AND settings_hash = ? AND prompt_hash = ?",
+            "SELECT answer, meta FROM responses WHERE model = ? AND settings_hash = ? AND prompt_hash = ?",
             (model, settings, prompt_hash(prompt)),
         ).fetchone()
-        return None if row is None else row[0]
+        return None if row is None else Reading(answer=row[0], meta=json.loads(row[1]), cached=True)
 
-    def put(self, model: str, settings: str, prompt: str, answer: str) -> None:
+    def get(self, model: str, settings: str, prompt: str) -> str | None:
+        reading = self.get_reading(model, settings, prompt)
+        return None if reading is None else reading.answer
+
+    def put(self, model: str, settings: str, prompt: str, answer: str, meta: dict[str, Any] | None = None) -> None:
         self._db.execute(
-            "INSERT OR REPLACE INTO responses VALUES (?, ?, ?, ?)",
-            (model, settings, prompt_hash(prompt), answer),
+            "INSERT OR REPLACE INTO responses VALUES (?, ?, ?, ?, ?)",
+            (model, settings, prompt_hash(prompt), answer, json.dumps(meta or {}, sort_keys=True)),
         )
         self._db.commit()
 
 
 class Reader(Protocol):
-    """The language model that answers a question from the retrieved chunks."""
+    """The language model that answers a question from the retrieved chunks:
+    an answer string, or a `Reading` carrying the call record too."""
 
-    def read(self, prompt: str) -> str: ...
+    def read(self, prompt: str) -> str | Reading: ...
+
+
+def as_reading(result: str | Reading) -> Reading:
+    return result if isinstance(result, Reading) else Reading(answer=result)
 
 
 class FakeReader:
@@ -129,22 +157,44 @@ class FakeReader:
         return self.answers.get(prompt_hash(prompt), self.default)
 
 
+class LazyReader:
+    """A backend loaded on the first read, so a run served wholly from the
+    cache never loads the model; `loads` counts the loads."""
+
+    def __init__(self, load: Callable[[], Reader]):
+        self._load = load
+        self._backend: Reader | None = None
+        self.loads = 0
+
+    def read(self, prompt: str) -> str | Reading:
+        if self._backend is None:
+            self._backend = self._load()
+            self.loads += 1
+        return self._backend.read(prompt)
+
+
 class CachedReader:
     """A reader whose answers persist in the response cache: a hit never
-    calls the backend, a miss is stored on its way back."""
+    calls the backend, a miss is stored on its way back. `calls` counts
+    the backend calls."""
 
     def __init__(self, cache: ResponseCache, model: str, settings: str, backend: Reader | None = None):
         self.cache = cache
         self.model = model
         self.settings = settings
         self.backend = backend
+        self.calls = 0
 
-    def read(self, prompt: str) -> str:
-        cached = self.cache.get(self.model, self.settings, prompt)
+    def reading(self, prompt: str) -> Reading:
+        cached = self.cache.get_reading(self.model, self.settings, prompt)
         if cached is not None:
             return cached
         if self.backend is None:
-            raise RuntimeError("no reader backend configured; the model client arrives with the reader run")
-        answer = self.backend.read(prompt)
-        self.cache.put(self.model, self.settings, prompt, answer)
-        return answer
+            raise RuntimeError("no reader backend configured and the answer is not cached")
+        reading = as_reading(self.backend.read(prompt))
+        self.calls += 1
+        self.cache.put(self.model, self.settings, prompt, reading.answer, reading.meta)
+        return reading
+
+    def read(self, prompt: str) -> str:
+        return self.reading(prompt).answer

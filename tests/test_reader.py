@@ -13,6 +13,8 @@ from rag.reader import (
     SHORT_INSTRUCTION,
     CachedReader,
     FakeReader,
+    LazyReader,
+    Reading,
     ResponseCache,
     instruction,
     prompt_hash,
@@ -108,3 +110,40 @@ def test_cached_reader_without_backend_fails_fast(tmp_path):
 
 def test_chunk_separator_is_a_blank_line():
     assert CHUNK_SEPARATOR == "\n\n"
+
+
+def test_response_cache_keeps_the_call_record(tmp_path):
+    cache = ResponseCache(tmp_path / "answers.sqlite")
+    cache.put("m", "s", "prompt", "answer", {"latency_seconds": 1.5, "finish_reason": "stop"})
+    reading = cache.get_reading("m", "s", "prompt")
+    assert reading == Reading(answer="answer", meta={"latency_seconds": 1.5, "finish_reason": "stop"}, cached=True)
+    cache.put("m", "s", "bare", "answer")
+    assert cache.get_reading("m", "s", "bare").meta == {}
+
+
+def test_cached_reader_stores_a_backend_reading_and_counts_calls(tmp_path):
+    cache = ResponseCache(tmp_path / "answers.sqlite")
+
+    class Backend:
+        def read(self, prompt):
+            return Reading(answer=f"re: {prompt}", meta={"latency_seconds": 0.25})
+
+    reader = CachedReader(cache, "m", "s", Backend())
+    first = reader.reading("p")
+    second = reader.reading("p")
+    assert first == Reading(answer="re: p", meta={"latency_seconds": 0.25})
+    assert second == Reading(answer="re: p", meta={"latency_seconds": 0.25}, cached=True)
+    assert reader.calls == 1
+
+
+def test_lazy_reader_loads_on_the_first_read_only():
+    loads = []
+
+    def load():
+        loads.append(1)
+        return FakeReader(default="x")
+
+    lazy = LazyReader(load)
+    assert lazy.loads == 0 and not loads
+    assert lazy.read("a") == "x" and lazy.read("b") == "x"
+    assert lazy.loads == 1 and len(loads) == 1

@@ -1,0 +1,50 @@
+{
+  "config_hash": "7863aeefe67178ee6d38f8c3ddbcffc474219e9dc38e235e0463e602a3100b92",
+  "graded": {
+    "answers": 300,
+    "cached": 14,
+    "calls": 286,
+    "questions": 100
+  },
+  "grader": {
+    "cli_version": "2.1.296 (Claude Code)",
+    "effort": "medium",
+    "max_attempts": 4,
+    "model": "claude-sonnet-5-5",
+    "pause_seconds": 5.0,
+    "prompt": "configs/v2/grader-prompt.txt",
+    "prompt_sha256": "8e1445fd3f77ee8252a32e3898c30813dc5d9192406c1fc799e9bc7a84b63c65",
+    "questions_per_dataset": 50,
+    "seed": 0,
+    "served_by": [
+      "claude-sonnet-5-5"
+    ],
+    "settings": {
+      "flags": [
+        "-p",
+        "--model",
+        "claude-sonnet-5-5",
+        "--effort",
+        "medium",
+        "--output-format",
+        "json",
+        "--tools",
+        "",
+        "--strict-mcp-config",
+        "--setting-sources",
+        "",
+        "--no-session-persistence",
+        "--system-prompt",
+        "You grade answers to questions. Reply with exactly one word: PASS or FAIL."
+      ]
+    },
+    "system_prompt_sha256": "4ff0417fafffd5f4933ad9c24a689958dd93205ee3906a08ada59a06938d5c46",
+    "threshold": 0.5
+  },
+  "latency_seconds": 630.85,
+  "tokens": {
+    "input": 294095,
+    "output": 9958
+  },
+  "wall_seconds": 2068.04
+}

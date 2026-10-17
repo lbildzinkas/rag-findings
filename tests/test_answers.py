@@ -105,6 +105,10 @@ def result_row(question_id, chunking, recall, dataset):
 
 @pytest.fixture
 def env(tmp_path, fake_encoding):
+    return build_answers_env(tmp_path)
+
+
+def build_answers_env(tmp_path):
     """A runs/ tree with one baseline run per dataset and a committed sample."""
     paths = Paths(root=tmp_path)
     for dataset, questions in (("qasper", (QASPER_QUESTION,)), ("nq", (NQ_PRECISE, NQ_CONTEXT))):

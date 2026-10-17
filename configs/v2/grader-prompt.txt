@@ -1,0 +1,14 @@
+You are checking whether an answer to a question is correct.
+
+Question:
+{question}
+
+Reference answers (each is a correct answer written or selected by an annotator; a long reference can be a whole passage that contains the answer):
+{references}
+
+Answer to check:
+{answer}
+
+The answer passes if it correctly answers the question in agreement with the reference answers, in any wording. It need not repeat a long reference in full, and extra detail is fine as long as it is correct, but what it states must be supported by a reference and must address the question. The answer fails if it is wrong, contradicts the references, misses the point of the question, or does not answer (for example, says the information is not available).
+
+Reply with one word: PASS or FAIL.
