@@ -10,7 +10,7 @@ Full write-up, with every table and the method: [RAG chunking v1 results](chunki
 
 **The question:** does the headroom v1 found come from routing each question between chunkings, or from indexing one chunking better?
 
-**The answer so far (provisional): neither beats section-aware.** No label-free contender comes near the **oracle router**, which picks the best chunking for each question in hindsight using the known answer, a ceiling no real router can reach. Every contender scores below section-aware, so none reaches the bar fixed before any v2 run ([ADR 0008](docs/adr/0008-pre-register-v2s-success-bar-and-tie-break.md)): at least +0.02 retrieval recall over section-aware. The retrieval results below are final. The answer-accuracy stage ([#26](https://github.com/lbildzinkas/rag-findings/issues/26)) reads section-aware, the oracle router and no retrieval with a local reader ([R14](results/v2/r14-answers.md), checked by a model grader in [R15](results/v2/r15-grader.md)); the formal verdict against the bar with its confidence intervals ([#27](https://github.com/lbildzinkas/rag-findings/issues/27)) and the v2 write-up ([#28](https://github.com/lbildzinkas/rag-findings/issues/28)) have not run yet.
+**The answer so far (provisional): the cheapest indexing change clears the bar.** Indexing section-aware chunks with the dataset's own document and section titles - free, no language model - is the one contender that beats section-aware where v2 judges: +0.0228 pooled retrieval recall with a 95% CI excluding 0 ([R17](results/qasper/r17-v2-titles.md)). The label-free routers, late chunking and contextual chunks all score below section-aware, so none of them reaches the bar fixed before any v2 run ([ADR 0008](docs/adr/0008-pre-register-v2s-success-bar-and-tie-break.md)): at least +0.02 retrieval recall over section-aware. The retrieval results below are final. The answer-accuracy stage ([#26](https://github.com/lbildzinkas/rag-findings/issues/26)) reads section-aware, the oracle router and no retrieval with a local reader ([R14](results/v2/r14-answers.md), checked by a model grader in [R15](results/v2/r15-grader.md)); the formal verdict against the bar with its confidence intervals ([#27](https://github.com/lbildzinkas/rag-findings/issues/27)) and the v2 write-up ([#28](https://github.com/lbildzinkas/rag-findings/issues/28)) have not run yet.
 
 The contenders use no question labels:
 
@@ -24,6 +24,7 @@ Budget view (as many reranked whole chunks as fit the budget, at most 20 per que
 
 | setup | retrieval recall | difference from section-aware | table |
 |---|---|---|---|
+| Section-aware chunks with titles (section-aware-titles) | 0.4497 | +0.0228 | [R17](results/qasper/r17-v2-titles.md) |
 | Section-aware (the best single chunking) | 0.4269 | | [R7](results/routing/r7-v2-budget-view.md) |
 | Contextual chunks (contextual-256) | 0.4089 | -0.0179 | [R13](results/qasper/r13-v2-contextual.md) |
 | Search-all routing | 0.4018 | -0.0250 | [R11](results/pooled/r11-v2-routers.md) |
@@ -32,9 +33,11 @@ Budget view (as many reranked whole chunks as fit the budget, at most 20 per que
 | Late chunking on fixed-128 (late-128) | 0.3582 | -0.0686 | [R12](results/qasper/r12-v2-late.md) |
 | Oracle router (a ceiling) [95% CI] | 0.5641 | +0.1373 [+0.1263, +0.1485] | [R7](results/routing/r7-v2-budget-view.md) |
 
-*Differences are taken between unrounded means, as R7's headroom is, so a few differ in the last digit from the rounded recalls; the contenders' CIs belong to the formal verdict. R12 and R13 carry the pooled columns in both their QASPER and Natural Questions tables.*
+*Differences are taken between unrounded means, as R7's headroom is, so a few differ in the last digit from the rounded recalls; the contenders' CIs belong to the formal verdict, except section-aware-titles', whose pre-registered bar verdict is rendered in R17. R12, R13 and R17 carry the pooled columns in both their QASPER and Natural Questions tables.*
 
 What the results say:
+
+- **The dataset's own titles, used for search only, clear the bar.** Indexing section-aware chunks with their document and section title in front - a QASPER chunk reads `Paper: <paper title>. Section: <section name>.`, and a Natural Questions page's header adds the page title because its chunks already open with their heading - lifts pooled recall by +0.0228 [+0.0128, +0.0331] at 1024 tokens, on both datasets (QASPER +0.0168, Natural Questions +0.0361), and the gain grows with the budget (+0.0251 pooled at 8192 tokens). No language model is involved; the reader and the recall score see the original chunk text, and the budget counts only that text.
 
 - **Context prefixes lift fixed-256 by +0.0403, not past section-aware.** contextual-256 gains on both datasets (QASPER +0.0345, Natural Questions +0.0530) but stays 0.0179 below section-aware. Showing the prefix to the reader as well, counting its tokens against the budget (**contextual-256-prefixed**), gives no retrieval gain: 0.3685, level with plain fixed-256 (0.3686).
 - **The label-free routers lose recall rather than capture the oracle's headroom.** Search-all routing trails section-aware by 0.0250 and confidence routing by 0.0422, while the oracle router sits +0.1373 above it. Confidence routing picks fixed-64 most often (0.2856 of questions) and section-aware for 0.2468.
