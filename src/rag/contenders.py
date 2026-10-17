@@ -326,9 +326,7 @@ def _gate_estimates(cfg: ContendersConfig, runs: list[_Run]) -> list[_GatePair]:
             cluster_parts.append(cluster + offset)
             draws_parts.append(draws)
             offset += len(names)
-        pooled = clustered_mean(
-            np.concatenate(diffs_parts), np.concatenate(cluster_parts), np.hstack(draws_parts)
-        )
+        pooled = clustered_mean(np.concatenate(diffs_parts), np.concatenate(cluster_parts), np.hstack(draws_parts))
         out.append(
             _GatePair(
                 contender=contender,

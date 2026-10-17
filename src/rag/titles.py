@@ -14,7 +14,7 @@ prefix (see rag.contextual), written by no model:
 - the header is used for search only: the BM25 index reads the search
   text, the embedder embeds it and the reranker scores (question, search
   text) pairs, while packing, scoring and the reader see the chunk's own
- span and the budget counts only its tokens.
+  span and the budget counts only its tokens.
 
 An empty part is skipped (a paper without a title, an unnamed section),
 so a chunk with neither carries no header and is searched by its own

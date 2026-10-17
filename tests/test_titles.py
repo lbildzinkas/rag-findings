@@ -102,7 +102,6 @@ def test_titles_needs_section_aware_chunking():
         )
 
 
-
 def test_titled_chunks_take_no_prefixes_late_embedding_or_prefix_in_budget():
     prefix_set = {"model": "m", "revision": "0" * 40, "prompt_sha256": "1" * 64}
     for extra in ({"prefixes": prefix_set}, {"embedding": "late"}, {"prefix_in_budget": True}):
@@ -212,7 +211,9 @@ def test_the_manifest_records_the_titled_chunking_and_its_headers(titles_run):
 def test_search_reads_the_header_and_the_plain_chunks_their_own_text(titles_run):
     _root, outcome, models, _ = titles_run
     texts = [p for _, p in models.reranker_model.pairs]
-    assert any(t.startswith("Paper: Paper paperA. Section: ") and SEPARATOR in t for t in texts)  # (question, search text)
+    assert any(
+        t.startswith("Paper: Paper paperA. Section: ") and SEPARATOR in t for t in texts
+    )  # (question, search text)
     assert any(not t.startswith("Paper: ") for t in texts)  # the plain chunking's pairs
 
     class BM25Texts:
@@ -298,9 +299,9 @@ def test_the_plain_section_aware_rows_are_reproduced_exactly_from_the_cache(tmp_
     build_env(tmp_path)
     plain, _plain_models, _plain_manifest = _run(tmp_path, PLAIN_GRID)
     titles, _models, manifest = _run(tmp_path)
-    assert manifest["embeddings"]["chunk_vectors_embedded"] == manifest["counts"]["chunks"][
-        "section-aware-titles"
-    ]  # only the headed chunks were embedded; the plain ones came from the cache
+    assert (
+        manifest["embeddings"]["chunk_vectors_embedded"] == manifest["counts"]["chunks"]["section-aware-titles"]
+    )  # only the headed chunks were embedded; the plain ones came from the cache
     plain_rows = [r for r in _rows(plain, "results.parquet") if r["chunking"] == "section-aware"]
     titled_rows = [r for r in _rows(titles, "results.parquet") if r["chunking"] == "section-aware"]
     assert plain_rows and len(plain_rows) == len(titled_rows)
@@ -384,9 +385,7 @@ def test_r17_reports_each_dataset_the_pooled_questions_and_the_bar_verdict(tmp_p
         differences
     )
     verdict = [line for line in qasper.splitlines() if "Verdict" in line]
-    assert any(
-        "section-aware-titles clears the bar" in line and "CI excluding 0" in line for line in verdict
-    ), verdict
+    assert any("section-aware-titles clears the bar" in line and "CI excluding 0" in line for line in verdict), verdict
     pooled = [line for line in qasper.splitlines() if line.startswith("- section-aware-titles - section-aware, pooled")]
     assert any("+0.1000 [" in line and "nq +0.1000, qasper +0.1000" in line for line in pooled), pooled
     first = {p: p.read_bytes() for p in paths}
@@ -406,7 +405,9 @@ def test_the_verdict_names_every_reason_a_contender_misses_the_bar(tmp_path):
     text = paths[0].read_text(encoding="utf-8")
     verdict = [line for line in text.splitlines() if "Verdict" in line]
     assert any(
-        "does not clear the bar" in line and "pooled gain is below +0.0200" in line and "nq alone is below -0.0100" in line
+        "does not clear the bar" in line
+        and "pooled gain is below +0.0200" in line
+        and "nq alone is below -0.0100" in line
         for line in verdict
     ), verdict
 
