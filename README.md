@@ -6,6 +6,49 @@
 
 Full write-up, with every table and the method: [RAG chunking v1 results](chunking/2026-10-14-v1-results.md) (2026-10-14).
 
+## v2 so far: routing or better indexing?
+
+**The question:** does the headroom v1 found come from routing each question between chunkings, or from indexing one chunking better?
+
+**The answer so far (provisional): neither beats section-aware.** No label-free contender comes near the **oracle router**, which picks the best chunking for each question in hindsight using the known answer, a ceiling no real router can reach. Every contender scores below section-aware, so none reaches the bar fixed before any v2 run ([ADR 0008](docs/adr/0008-pre-register-v2s-success-bar-and-tie-break.md)): at least +0.02 retrieval recall over section-aware. The retrieval results below are final; the answer-accuracy stage ([#26](https://github.com/lbildzinkas/rag-findings/issues/26)), the formal verdict against the bar with its confidence intervals ([#27](https://github.com/lbildzinkas/rag-findings/issues/27)) and the v2 write-up ([#28](https://github.com/lbildzinkas/rag-findings/issues/28)) have not run yet.
+
+The contenders use no question labels:
+
+- **Search-all routing:** search all seven chunkings' indexes at once, fuse the lists and rerank the merged top 50.
+- **Confidence routing:** per question, use the chunking whose top reranked chunk scores highest.
+- **Late chunking (late-128, late-256):** fixed-128's and fixed-256's chunks, each embedded from the token embeddings of its whole document instead of on its own.
+- **Contextual chunks (contextual-256):** fixed-256's chunks, each with a short context prefix written by a local model; the prefix is used for search only, and the reader gets the chunk text.
+
+Budget view (as many reranked whole chunks as fit the budget, at most 20 per question), production line with nomic-embed-text-v1.5, 1024-token budget, QASPER and Natural Questions pooled (3,197 questions):
+
+| setup | retrieval recall | difference from section-aware | table |
+|---|---|---|---|
+| Section-aware (the best single chunking) | 0.4269 | | [R7](results/routing/r7-v2-budget-view.md) |
+| Contextual chunks (contextual-256) | 0.4089 | -0.0179 | [R13](results/qasper/r13-v2-contextual.md) |
+| Search-all routing | 0.4018 | -0.0250 | [R11](results/pooled/r11-v2-routers.md) |
+| Confidence routing | 0.3847 | -0.0422 | [R11](results/pooled/r11-v2-routers.md) |
+| Late chunking on fixed-256 (late-256) | 0.3688 | -0.0581 | [R12](results/qasper/r12-v2-late.md) |
+| Late chunking on fixed-128 (late-128) | 0.3582 | -0.0686 | [R12](results/qasper/r12-v2-late.md) |
+| Oracle router (a ceiling) [95% CI] | 0.5641 | +0.1373 [+0.1263, +0.1485] | [R7](results/routing/r7-v2-budget-view.md) |
+
+*Differences are taken between unrounded means, as R7's headroom is, so a few differ in the last digit from the rounded recalls; the contenders' CIs belong to the formal verdict. R12 and R13 carry the pooled columns in both their QASPER and Natural Questions tables.*
+
+What the results say:
+
+- **Context prefixes lift fixed-256 by +0.0403, not past section-aware.** contextual-256 gains on both datasets (QASPER +0.0345, Natural Questions +0.0530) but stays 0.0179 below section-aware. Showing the prefix to the reader as well, counting its tokens against the budget (**contextual-256-prefixed**), gives no retrieval gain: 0.3685, level with plain fixed-256 (0.3686).
+- **The label-free routers lose recall rather than capture the oracle's headroom.** Search-all routing trails section-aware by 0.0250 and confidence routing by 0.0422, while the oracle router sits +0.1373 above it. Confidence routing picks fixed-64 most often (0.2856 of questions) and section-aware for 0.2468.
+- **Late chunking barely changes small chunks.** Against the same fixed chunks embedded on their own, late-128 moves pooled recall by +0.0064 and late-256 by +0.0002: slightly better on Natural Questions (+0.0290 and +0.0082), slightly worse on QASPER (-0.0039 and -0.0035).
+
+**How section-aware chunking works.** It cuts each document at its own sections: a QASPER paper's named sections (the abstract is one), a Natural Questions page at its H1-H6 headings. Each section becomes one chunk of up to 512 tokens; a longer section is split at paragraph boundaries into runs of whole paragraphs, and a single paragraph longer than 512 tokens is cut into 512-token windows. Chunks therefore follow the document's units of meaning instead of a fixed window. QASPER chunks do not include the section title text; on Natural Questions pages the heading text is part of the page text and opens its section's first chunk. The code is `section_aware` in [`src/rag/chunking.py`](src/rag/chunking.py); the vocabulary is in [`CONTEXT.md`](CONTEXT.md).
+
+Limitations of v2 so far:
+
+- Answers are not measured yet: every v2 number is retrieval recall, and the reader stage (GLM 5.3 Flash on a 1,000-question sample, [ADR 0009](docs/adr/0009-measure-answer-accuracy-with-glm-5-3-flash-as-the-reader.md)) is still to run.
+- Some Natural Questions pages hold byte-identical chunks at the same character span, which the reranker scores exactly equally, so tie order decides which page's copy is packed. Against v1 this moved three v2-baseline cells by one question each, within ±0.001 ([note](results/nq/v2-baseline-regression.md)).
+- Late chunking pools each chunk from the token embeddings that start inside it, leaving the document prefix and special tokens out, so a window holding a single chunk reproduces that chunk's own vector to a cosine of 0.999798 at worst for late-128 (just under the 0.9999 check) and 0.999946 for late-256 ([check](results/late-single-chunk-cosine.md)). A document longer than 8192 tokens is read in several windows, so each chunk sees only its own window.
+- The reranker orders only the top 30 of each chunking's list (search-all routing: the fused top 50). At 1024 tokens section-aware packs chunks from past rank 30, in fused order, for 0.5831 of QASPER questions and 0.8540 of Natural Questions ones (R5, [QASPER](results/qasper/r5-v2-baseline.md), [Natural Questions](results/nq/r5-v2-baseline.md)), so a deeper rerank could shift the margins either way.
+- nomic-embed-text-v1.5 only, one run per setup, two English sources.
+
 ## What was measured
 
 A **chunking** is one way of cutting documents into retrievable pieces. Every chunking gets the same **token budget**: the amount of retrieved text, counted in tokens, that a language model may read for one question, filled with whole chunks. The score is **retrieval recall**: the share of the text that answers the question (its labelled spans) that ends up inside that budget. A recall of 0.4256 means 42.56% of the answer text was retrieved.
@@ -70,7 +113,7 @@ At 1024 tokens, production view, comparing each pipeline's best single chunking 
 
 **Use today:** section-aware chunks with a token budget around 1024 tokens, hybrid search plus the reranker over the top 30. Either embedder works; their recalls are within a few thousandths.
 
-**v2:** ask whether the headroom v1 found comes from routing between chunkings or from indexing one chunking better, measured end to end through a reader's answers. Label-free contenders - search-all routing, confidence routing, late chunking and contextual chunks - run against section-aware with the perfect router as the ceiling, on nomic-embed-text-v1.5 and judged in the budget view. The success bar and the tie-break between contenders are fixed before any run, section-aware stays if nothing clears them, and answer accuracy is measured with GLM 5.3 Flash as the reader. The settled decisions are recorded in [ADR 0005](docs/adr/0005-compare-routing-against-indexing-with-label-free-contenders-only.md) through [ADR 0009](docs/adr/0009-measure-answer-accuracy-with-glm-5-3-flash-as-the-reader.md).
+**v2:** asks whether the headroom v1 found comes from routing between chunkings or from indexing one chunking better, measured end to end through a reader's answers. Label-free contenders - search-all routing, confidence routing, late chunking and contextual chunks - run against section-aware with the oracle router as the ceiling, on nomic-embed-text-v1.5 and judged in the budget view. The success bar and the tie-break between contenders were fixed before any run, and section-aware stays if nothing clears them. On retrieval none beats section-aware ([v2 so far](#v2-so-far-routing-or-better-indexing)), so the advice above stands; answer accuracy, measured with GLM 5.3 Flash as the reader, and the formal verdict are still to run. The settled decisions are recorded in [ADR 0005](docs/adr/0005-compare-routing-against-indexing-with-label-free-contenders-only.md) through [ADR 0009](docs/adr/0009-measure-answer-accuracy-with-glm-5-3-flash-as-the-reader.md).
 
 ## Limitations
 
@@ -188,6 +231,30 @@ It takes seconds and regenerates the committed tables under `results/routing/`, 
 
 The committed tables read the QASPER and Natural Questions grid runs (`runs: [qasper/grid, nq/grid]`), pooled per question across the two runs, each dataset's documents resampled as its own clusters.
 
+### The v2 runs, in order
+
+Each stage reads the runs before it. The retrieval runs use the production line with nomic only and collection search, after `rag setup` and `rag sample`:
+
+```sh
+uv run rag run configs/v2/qasper-baseline.yaml && uv run rag run configs/v2/nq-baseline.yaml
+uv run rag headroom configs/v2/budget-view.yaml
+uv run rag run configs/v2/qasper-routers.yaml && uv run rag run configs/v2/nq-routers.yaml
+uv run rag routers configs/v2/routers.yaml
+uv run rag run configs/v2/qasper-late.yaml && uv run rag run configs/v2/nq-late.yaml
+uv run rag contenders configs/v2/late.yaml
+uv run --group prefixes rag prefixes configs/prefixes.yaml
+uv run rag run configs/v2/qasper-contextual.yaml && uv run rag run configs/v2/nq-contextual.yaml
+uv run rag contenders configs/v2/contextual.yaml
+uv run rag reader-sample --check
+uv run rag answers configs/v2/answers.yaml --dry-run
+```
+
+The subsections below describe each stage.
+
+### The v2 baseline and the budget view
+
+v1's seven chunkings re-scored in the budget view ([ADR 0006](docs/adr/0006-make-the-budget-view-v2s-primary-view.md)) with nomic-embed-text-v1.5 ([ADR 0007](docs/adr/0007-use-nomic-embed-text-v1-5-as-v2s-primary-embedder.md)), and the oracle router ceiling recomputed under it before any contender ran. The baseline runs (`configs/v2/qasper-baseline.yaml`, `configs/v2/nq-baseline.yaml`, run name `v2-baseline`) write the R2-R6 tables under `results/qasper/` and `results/nq/` (`*-v2-baseline.md`, R6 on Natural Questions only) and export the packed spans of the budget view's 1024-token cell, which the reader stage's section-aware and oracle setups read. `headroom configs/v2/budget-view.yaml` reads both runs (no retrieval runs) and regenerates `results/routing/r7-v2-budget-view.md`, `r8-v2-budget-view.md` and `r9-v2-budget-view.md`: the best single chunking, the oracle router and the routing headroom with no gate verdict (the gate was v1's question), the chunk size x query type interaction, and the oracle router's picks by query type. The Natural Questions re-run matches the v1 grid's nomic production-line cells byte-for-byte except three cells, one question each; [`results/nq/v2-baseline-regression.md`](results/nq/v2-baseline-regression.md) traces them to tie order between byte-identical chunks on different pages.
+
 ### The v2 routers
 
 The two label-free routers of [ADR 0005](docs/adr/0005-compare-routing-against-indexing-with-label-free-contenders-only.md), computed per question from the seven chunkings' rankings with no labels, over the v2 baseline's settings (production line, nomic, collection search). **Search-all routing** fuses the seven chunkings' hybrid lists by reciprocal rank fusion (k = 60) keyed by document and character span - identical text from two chunkings is one item - reranks the fused top 50 and packs by budget counting overlapping text once, small-to-big children keeping v1's parent rule. **Confidence routing** uses, per question, the chunking whose reranked top result scores highest (the top-1 reranker score of each chunking's reranked top 30), ties going to the smaller chunk, and records the pick per question. Both are scored over merged text: recall and precision count every retrieved token once, the union of the packed token ranges, so the single chunkings' scores are unchanged.
@@ -201,7 +268,7 @@ The runs (`kind: routers`) write `routed.parquet` (one row per question x router
 
 ### Late chunking
 
-The indexing contender of [ADR 0005](docs/adr/0005-compare-routing-against-indexing-with-label-free-contenders-only.md) (with [ADR 0007](docs/adr/0007-use-nomic-embed-text-v1-5-as-v2-s-primary-embedder.md)): **late-128** and **late-256** keep fixed-128's and fixed-256's exact spans - BM25, packing, scoring and reranker scores are shared, only the vectors differ - but each chunk's vector is pooled from the token embeddings of the whole document instead of embedding the chunk alone. Each document, prefixed once with `search_document: `, is read in consecutive windows of whole 256-token blocks (the fixed-256 cuts, so every window holds whole chunks of both sizes) of at most 8192 nomic tokens, prefix and special tokens included, one forward pass per window serving both late chunkings; a chunk's vector is the normalized mean of the token embeddings that start inside it (the prefix and special tokens join no chunk) and is cached under the model key plus `#late-8192`, never mixing with the chunk-embedded vectors of the same spans. nomic is loaded with `rotary_scaling_factor=2`, the model card's setting for inputs past its 2048 trained positions; inputs up to 2048 tokens stay bit-identical, so the cached v1 vectors remain valid.
+The indexing contender of [ADR 0005](docs/adr/0005-compare-routing-against-indexing-with-label-free-contenders-only.md) (with [ADR 0007](docs/adr/0007-use-nomic-embed-text-v1-5-as-v2s-primary-embedder.md)): **late-128** and **late-256** keep fixed-128's and fixed-256's exact spans - BM25, packing, scoring and reranker scores are shared, only the vectors differ - but each chunk's vector is pooled from the token embeddings of the whole document instead of embedding the chunk alone. Each document, prefixed once with `search_document: `, is read in consecutive windows of whole 256-token blocks (the fixed-256 cuts, so every window holds whole chunks of both sizes) of at most 8192 nomic tokens, prefix and special tokens included, one forward pass per window serving both late chunkings; a chunk's vector is the normalized mean of the token embeddings that start inside it (the prefix and special tokens join no chunk) and is cached under the model key plus `#late-8192`, never mixing with the chunk-embedded vectors of the same spans. nomic is loaded with `rotary_scaling_factor=2`, the model card's setting for inputs past its 2048 trained positions; inputs up to 2048 tokens stay bit-identical, so the cached v1 vectors remain valid.
 
 ```sh
 uv run rag run configs/v2/qasper-late.yaml && uv run rag run configs/v2/nq-late.yaml
@@ -209,17 +276,6 @@ uv run rag contenders configs/v2/late.yaml
 ```
 
 The runs (production line, nomic, collection search, fixed-128, fixed-256, section-aware and the two late chunkings, all budgets, budget, production and fair views) write the R2-R6 tables under run name `v2-late` (R6 on Natural Questions only) and export the packed spans of the budget view's 1024-token cell, which the reader stage's late-128 and late-256 setups read. `contenders` reads the two runs' per-question results (no retrieval runs) and regenerates the committed `results/{qasper,nq}/r12-v2-late.md` (R12) byte-identically: recall and precision of both late chunkings at every budget in the budget and production views, next to fixed-128, fixed-256 and section-aware, per dataset and pooled, plus each contender's difference from the fixed chunking with the same spans. A window holding a single chunk reproduces that chunk's independent vector to cosine >= 0.9999; the check runs once against the real model and is recorded in [`results/late-single-chunk-cosine.md`](results/late-single-chunk-cosine.md).
-
-### Reader sample and the answers stage
-
-The v2 reader stage's offline half (ADR 0009). `reader-sample` draws the 1,000-question reader sample - 500 QASPER questions filled by whole papers in seeded order (a paper that would overshoot is skipped), 250 precise and 250 context Natural Questions pages - and commits it as ids only (`configs/v2/reader-sample.txt`, reproducible from its seed; `--check` verifies the committed list against a fresh draw). The loaders also carry each question's reference answers (QASPER: each answering annotator's extractive spans joined with ", ", free-form answer, or "Yes"/"No"; NQ precise: the short-answer texts and yes/no answers; NQ context: the long-answer paragraph) - a field the retrieval path never reads.
-
-```sh
-uv run rag reader-sample --check   # verify the committed sample against a fresh draw
-uv run rag answers configs/v2/answers.yaml --dry-run
-```
-
-`answers --dry-run` assembles every reader setup from the runs' `packed.parquet` at the budget view's primary cell (1024 tokens, collection search, nomic): section-aware, the search-all and confidence routers, late-128 and late-256, contextual-256 and its prefix-in-budget side variant, the oracle router (per question, the chunking with the highest recall, ties to the smaller chunk) and the no-retrieval floor. It renders the fixed reader prompt (whose template hash is recorded before any answer exists; the contextual side variant's chunks are rendered as prefix, blank line and chunk text, read from the prefix store), reports prompt token counts per setup and dataset without calling a model, and fails when any prompt exceeds the budget plus the template. Setups whose packed spans have not landed yet (their own tickets deliver them) are reported as pending. The answer scoring (answer F1 for QASPER, short-answer match with contains-a-reference as a secondary column for NQ precise, token F1 for NQ context, all after SQuAD-style normalisation), the reader interface with its SQLite response cache under `data/`, and the R14 scaffold (answer score per setup and dataset, document-clustered CIs, the difference from section-aware) are exercised by the tests; the reader run fills the table.
 
 ### Context prefixes (v2)
 
@@ -247,6 +303,17 @@ uv run rag contenders configs/v2/contextual.yaml
 ```
 
 The runs (production line, nomic, collection search, fixed-256, section-aware and both contextual chunkings, all budgets, budget, production and fair views) write the R2-R6 tables under run name `v2-contextual` (R6 on Natural Questions only) and export the packed spans of the budget view's 1024-token cell for both variants, which the reader stage's contextual setups read. `contenders` regenerates the committed `results/{qasper,nq}/r13-v2-contextual.md` (R13) byte-identically: recall and precision of both contextual chunkings at every budget in the budget and production views, next to fixed-256 and section-aware, per dataset and pooled, plus contextual-256's difference from fixed-256 and the side variant's from contextual-256.
+
+### Reader sample and the answers stage
+
+The v2 reader stage's offline half (ADR 0009). `reader-sample` draws the 1,000-question reader sample - 500 QASPER questions filled by whole papers in seeded order (a paper that would overshoot is skipped), 250 precise and 250 context Natural Questions pages - and commits it as ids only (`configs/v2/reader-sample.txt`, reproducible from its seed; `--check` verifies the committed list against a fresh draw). The loaders also carry each question's reference answers (QASPER: each answering annotator's extractive spans joined with ", ", free-form answer, or "Yes"/"No"; NQ precise: the short-answer texts and yes/no answers; NQ context: the long-answer paragraph) - a field the retrieval path never reads.
+
+```sh
+uv run rag reader-sample --check   # verify the committed sample against a fresh draw
+uv run rag answers configs/v2/answers.yaml --dry-run
+```
+
+`answers --dry-run` assembles every reader setup from the runs' `packed.parquet` at the budget view's primary cell (1024 tokens, collection search, nomic): section-aware, the search-all and confidence routers, late-128 and late-256, contextual-256 and its prefix-in-budget side variant, the oracle router (per question, the chunking with the highest recall, ties to the smaller chunk) and the no-retrieval floor. It renders the fixed reader prompt (whose template hash is recorded before any answer exists; the contextual side variant's chunks are rendered as prefix, blank line and chunk text, read from the prefix store), reports prompt token counts per setup and dataset without calling a model, and fails when any prompt exceeds the budget plus the template. Setups whose packed spans have not landed yet (their own tickets deliver them) are reported as pending. The answer scoring (answer F1 for QASPER, short-answer match with contains-a-reference as a secondary column for NQ precise, token F1 for NQ context, all after SQuAD-style normalisation), the reader interface with its SQLite response cache under `data/`, and the R14 scaffold (answer score per setup and dataset, document-clustered CIs, the difference from section-aware) are exercised by the tests; the reader run fills the table.
 
 ## Data, models and licences
 
