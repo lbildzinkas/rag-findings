@@ -1,5 +1,6 @@
 """Command line entry point: `rag setup`, `rag sample`, `rag reader-sample`, `rag run <config>`,
-`rag headroom <config>`, `rag contenders <config>`, `rag answers <config>`, `rag routers <config>` and `rag writeup`."""
+`rag headroom <config>`, `rag contenders <config>`, `rag answers <config>`, `rag routers <config>`,
+`rag prefixes <config>` and `rag writeup`."""
 
 from __future__ import annotations
 
@@ -164,6 +165,25 @@ def main(argv: list[str] | None = None) -> int:
         help="project root holding runs/ and results/ (default: current directory)",
     )
 
+    prefixes_parser = sub.add_parser(
+        "prefixes",
+        help="write a context prefix for every chunk of the configured chunking with a local model "
+        "(macOS; run with `uv run --group prefixes`)",
+    )
+    prefixes_parser.add_argument("config", type=Path, help="path to the prefix config YAML")
+    prefixes_parser.add_argument(
+        "--estimate",
+        type=int,
+        default=None,
+        metavar="N",
+        help="write the prefixes of N seeded documents per dataset and print the projected hours of the full run",
+    )
+    prefixes_parser.add_argument(
+        "--root",
+        default=None,
+        help="project root holding configs/, data/ and results/ (default: current directory)",
+    )
+
     writeup_parser = sub.add_parser(
         "writeup", help="regenerate the v1 write-up's tables and figures from the committed result tables"
     )
@@ -301,6 +321,14 @@ def main(argv: list[str] | None = None) -> int:
 
         run_routers_table(load_routers_table_config(args.config), paths)
         return 0
+
+    if args.command == "prefixes":
+        from .prefixes import load_prefix_config, run_prefixes
+
+        if args.estimate is not None and args.estimate <= 0:
+            parser.error("--estimate needs a positive number of documents")
+        outcome = run_prefixes(load_prefix_config(args.config), paths, estimate=args.estimate)
+        return 1 if outcome.get("missing") else 0
 
     if args.command == "writeup":
         from .writeup import check, write

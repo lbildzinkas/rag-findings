@@ -1,0 +1,130 @@
+{
+  "chunks": 49690,
+  "chunks_with_prefix": 49690,
+  "config": {
+    "batch_size": 6,
+    "chunking": {
+      "chunk_tokens": 256,
+      "method": "fixed",
+      "name": "fixed-256"
+    },
+    "context_tokens": 8192,
+    "dataset": {
+      "name": "pooled",
+      "sources": [
+        {
+          "name": "qasper",
+          "splits": [
+            "dev",
+            "test"
+          ]
+        },
+        {
+          "name": "nq",
+          "splits": [
+            "dev"
+          ]
+        }
+      ]
+    },
+    "kind": "prefixes",
+    "manifest": "results/prefixes/fixed-256-qwen3-8b.json",
+    "max_new_tokens": 120,
+    "model": {
+      "id": "mlx-community/Qwen3-8B-4bit",
+      "revision": "545dc4251c05440727734bcd94334791f6ab0192"
+    },
+    "prompt": "configs/prefix-prompt.txt",
+    "prompt_sha256": "1f90604cbe2d345af3d3eb34108a12fb47626e6416e5dbdf9c39786f77bfef44",
+    "seed": 0
+  },
+  "datasets": {
+    "nq": {
+      "chunks": 36285,
+      "chunks_with_prefix": 36285,
+      "distinct_documents": 987,
+      "distinct_prefixes": 35564,
+      "documents": 1000,
+      "documents_in_windows": 398,
+      "prefix_tokens": {
+        "max": 120,
+        "mean": 39.77,
+        "min": 3,
+        "p10": 24.0,
+        "p50": 39.0,
+        "p90": 55.0,
+        "p99": 72.0
+      },
+      "truncated": 3,
+      "wall_hours": 22.808
+    },
+    "qasper": {
+      "chunks": 13405,
+      "chunks_with_prefix": 13405,
+      "distinct_documents": 697,
+      "distinct_prefixes": 13405,
+      "documents": 697,
+      "documents_in_windows": 38,
+      "prefix_tokens": {
+        "max": 97,
+        "mean": 41.85,
+        "min": 13,
+        "p10": 32.0,
+        "p50": 41.0,
+        "p90": 52.0,
+        "p99": 65.0
+      },
+      "truncated": 0,
+      "wall_hours": 7.59
+    }
+  },
+  "distinct_prefixes": 48969,
+  "missing": [],
+  "model": {
+    "id": "mlx-community/Qwen3-8B-4bit",
+    "revision": "545dc4251c05440727734bcd94334791f6ab0192"
+  },
+  "prefix_digest": "03cec1e420216d5f35fecaf3b5cb6aa9514938d7989043ab8699781ca175d84c",
+  "prefix_tokens": {
+    "max": 120,
+    "mean": 40.34,
+    "min": 3,
+    "p10": 27.0,
+    "p50": 40.0,
+    "p90": 54.0,
+    "p99": 71.0
+  },
+  "prompt_sha256": "1f90604cbe2d345af3d3eb34108a12fb47626e6416e5dbdf9c39786f77bfef44",
+  "runtime": {
+    "mlx": "0.31.1",
+    "mlx-lm": "0.29.1"
+  },
+  "store": {
+    "key": [
+      "model",
+      "prompt_hash",
+      "doc_hash",
+      "start",
+      "end"
+    ],
+    "table": "prefixes"
+  },
+  "truncated": [
+    {
+      "chunk": 17,
+      "dataset": "nq",
+      "doc_id": "-4911625429276396291"
+    },
+    {
+      "chunk": 42,
+      "dataset": "nq",
+      "doc_id": "3585535881204356180"
+    },
+    {
+      "chunk": 16,
+      "dataset": "nq",
+      "doc_id": "5407317268609436979"
+    }
+  ],
+  "wall_hours": 30.398
+}

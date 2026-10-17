@@ -24,6 +24,11 @@ class Paths:
         return self.data / "cache"
 
     @property
+    def prefixes(self) -> Path:
+        """Context prefixes written for contextual chunks (git-ignored)."""
+        return self.data / "prefixes" / "prefixes.sqlite"
+
+    @property
     def runs(self) -> Path:
         return self.root / "runs"
 
