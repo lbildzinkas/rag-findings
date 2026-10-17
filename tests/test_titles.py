@@ -29,7 +29,7 @@ from rag.pipelines import model_key
 from rag.run import gold_token_sets, load_datasets
 from rag.titles import KEY_SUFFIX, chunk_headers, chunk_section, header, key_suffix
 from rag.tokens import TokenText
-from tests.conftest import FakeEncoding
+from tests.conftest import FakeEncoding, write_split
 from tests.test_grid import build_env, table_rows
 from tests.test_production import PRODUCTION, FakeModels
 
@@ -185,6 +185,25 @@ def test_empty_title_and_section_parts_are_skipped():
     neither = build_document("w", "", [("", ["Body."])])
     chunk = section_aware(neither, TokenText(neither.text, FakeEncoding()), 8)[0]
     assert header(neither, chunk) == ""
+
+
+def test_an_unnamed_qasper_section_loads_as_empty_and_its_header_omits_it(tmp_path):
+    paper = {
+        "title": "Titled",
+        "abstract": "",
+        "full_text": [{"section_name": None, "paragraphs": ["Body text."]}],
+        "figures_and_tables": [],
+        "qas": [],
+    }
+    write_split(tmp_path / "data" / "qasper" / "qasper-dev-v0.3.json", {"p": paper})
+    from rag.qasper import load_split
+
+    doc = {d.doc_id: d for d in load_split("dev", tmp_path / "data" / "qasper" / "qasper-dev-v0.3.json").documents}["p"]
+    from rag.chunking import section_aware
+
+    chunk = section_aware(doc, TokenText(doc.text, FakeEncoding()), 8)[0]
+    assert doc.paragraphs[0].section == ""
+    assert header(doc, chunk) == "Paper: Titled."
 
 
 def test_chunk_headers_keys_every_chunk_by_document_hash_and_span():

@@ -56,7 +56,7 @@ def header(doc: Document, chunk: Chunk) -> str:
     if title:
         parts.append(f"{'Page' if doc.headings_in_text else 'Paper'}: {title}")
     if not doc.headings_in_text:
-        section = " ".join(chunk_section(doc, chunk).split())
+        section = " ".join((chunk_section(doc, chunk) or "").split())
         if section:
             parts.append(f"Section: {section}")
     return ". ".join(parts) + "." if parts else ""
