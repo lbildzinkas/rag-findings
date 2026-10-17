@@ -91,6 +91,58 @@ class SetupSpec:
 
 
 @dataclass(frozen=True)
+class ReaderSpec:
+    """The reader model and its fixed generation settings (ADR 0009, amended
+    2026-10-17): thinking off and greedy decoding, the same for every setup."""
+
+    model_id: str
+    revision: str
+    max_new_tokens: int
+
+    @property
+    def model_key(self) -> str:
+        return f"{self.model_id}@{self.revision}"
+
+    def settings(self) -> dict[str, Any]:
+        """The generation settings: hashed into the response cache key."""
+        return {"decoding": "greedy", "thinking": False, "max_new_tokens": self.max_new_tokens}
+
+    def as_dict(self) -> dict[str, Any]:
+        return {"model": {"id": self.model_id, "revision": self.revision}, "max_new_tokens": self.max_new_tokens}
+
+
+@dataclass(frozen=True)
+class GraderSpec:
+    """The model-graded check: `questions_per_dataset` seeded questions per
+    dataset (Natural Questions half precise, half context), every setup's
+    answer graded pass/fail through the `claude` command-line tool with the
+    committed grader prompt, `pause_seconds` between calls."""
+
+    model: str
+    effort: str
+    prompt: tuple[str, ...]  # the committed prompt file's path parts
+    prompt_sha256: str
+    questions_per_dataset: int
+    seed: int
+    pause_seconds: float
+    max_attempts: int
+    threshold: float  # an answer score at or above this counts as a pass
+
+    def as_dict(self) -> dict[str, Any]:
+        return {
+            "model": self.model,
+            "effort": self.effort,
+            "prompt": str(Path(*self.prompt)),
+            "prompt_sha256": self.prompt_sha256,
+            "questions_per_dataset": self.questions_per_dataset,
+            "seed": self.seed,
+            "pause_seconds": self.pause_seconds,
+            "max_attempts": self.max_attempts,
+            "threshold": self.threshold,
+        }
+
+
+@dataclass(frozen=True)
 class AnswersConfig:
     run_name: str
     sources: tuple[DatasetRef, ...]
@@ -106,10 +158,12 @@ class AnswersConfig:
     resamples: int
     seed: int
     confidence: float
+    reader: ReaderSpec | None = None  # absent: dry runs only
+    grader: GraderSpec | None = None
 
     def as_dict(self) -> dict[str, Any]:
         dataset: dict[str, Any] = {"name": "pooled", "sources": [source.as_dict() for source in self.sources]}
-        return {
+        out = {
             "kind": "answers",
             "run_name": self.run_name,
             "dataset": dataset,
@@ -126,6 +180,37 @@ class AnswersConfig:
             "seed": self.seed,
             "confidence": self.confidence,
         }
+        if self.reader is not None:
+            out["reader"] = self.reader.as_dict()
+        if self.grader is not None:
+            out["grader"] = self.grader.as_dict()
+        return out
+
+
+def _parse_reader(raw: dict[str, Any] | None) -> ReaderSpec | None:
+    if raw is None:
+        return None
+    return ReaderSpec(
+        model_id=str(raw["model"]["id"]),
+        revision=str(raw["model"]["revision"]),
+        max_new_tokens=int(raw["max_new_tokens"]),
+    )
+
+
+def _parse_grader(raw: dict[str, Any] | None) -> GraderSpec | None:
+    if raw is None:
+        return None
+    return GraderSpec(
+        model=str(raw["model"]),
+        effort=str(raw["effort"]),
+        prompt=tuple(str(raw["prompt"]).split("/")),
+        prompt_sha256=str(raw["prompt_sha256"]),
+        questions_per_dataset=int(raw["questions_per_dataset"]),
+        seed=int(raw["seed"]),
+        pause_seconds=float(raw["pause_seconds"]),
+        max_attempts=int(raw["max_attempts"]),
+        threshold=float(raw["threshold"]),
+    )
 
 
 def parse_answers_config(raw: dict[str, Any]) -> AnswersConfig:
@@ -157,6 +242,8 @@ def parse_answers_config(raw: dict[str, Any]) -> AnswersConfig:
             resamples=int(raw["resamples"]),
             seed=int(raw["seed"]),
             confidence=float(raw["confidence"]),
+            reader=_parse_reader(raw.get("reader")),
+            grader=_parse_grader(raw.get("grader")),
         )
     except (KeyError, TypeError, AttributeError) as exc:
         raise ValueError(f"invalid answers config: {exc}") from exc
@@ -199,6 +286,18 @@ def _validate_answers_config(cfg: AnswersConfig) -> None:
             raise ValueError(f"setup {setup.name}: a packed setup filters by chunking or pipeline")
         if setup.kind == "oracle" and setup.chunking is not None:
             raise ValueError(f"setup {setup.name}: the oracle picks its chunkings itself")
+    if cfg.reader is not None and cfg.reader.max_new_tokens <= 0:
+        raise ValueError("reader max_new_tokens must be positive")
+    if cfg.grader is not None:
+        grader = cfg.grader
+        if grader.questions_per_dataset <= 0 or grader.questions_per_dataset % 2:
+            raise ValueError(
+                "grader questions_per_dataset must be positive and even (Natural Questions: half per type)"
+            )
+        if grader.max_attempts <= 0 or grader.pause_seconds < 0:
+            raise ValueError("grader max_attempts must be positive and pause_seconds not negative")
+        if not 0 < grader.threshold <= 1:
+            raise ValueError("grader threshold must be in (0, 1]")
 
 
 def answers_config_hash(cfg: AnswersConfig) -> str:
@@ -632,6 +731,13 @@ ANSWERS_SCHEMA = pa.schema(
         ("score", pa.float64()),
         ("secondary", pa.float64()),  # contains-a-reference (NQ precise), null elsewhere
         ("prompt_hash", pa.string()),
+        # the reader call's record (null in scaffold rows): latency of the call
+        # that produced the answer, even when this run read it from the cache
+        ("answer_hash", pa.string()),
+        ("latency_seconds", pa.float64()),
+        ("prompt_tokens", pa.int64()),
+        ("completion_tokens", pa.int64()),
+        ("finish_reason", pa.string()),
     ]
 )
 
@@ -778,7 +884,11 @@ def render_r14(
         f"- reader sample: `{Path(*cfg.sample)}` (seed {cfg.seed})",
     ]
     if reader:
-        lines.append(f"- reader: `{reader.get('model')}` (settings hash `{reader.get('settings_hash')}`)")
+        settings = ", ".join(f"{key} {value}" for key, value in sorted(reader["settings"].items()))
+        runtime = ", ".join(f"{name} {value}" for name, value in sorted(reader.get("runtime", {}).items()))
+        lines.append(f"- reader: `{reader['model']}` ({settings}; settings hash `{reader['settings_hash']}`)")
+        if runtime:
+            lines.append(f"- reader runtime: {runtime}")
     else:
         lines.append("- reader: filled by the reader run")
     lines += [
@@ -837,5 +947,65 @@ def render_r14(
             else:
                 cells += ["-", "-"]
         lines.append("| " + " | ".join(cells) + " |")
+    if reader:
+        lines += _latency_section(cfg, scores, reader)
     lines += ["", "No dataset text, prompt or answer is committed: only ids, hashes and scores.", ""]
     return "\n".join(lines)
+
+
+def _latency_section(cfg: AnswersConfig, scores: Sequence[dict], reader: dict[str, Any]) -> list[str]:
+    """Latency per answer (the call that produced it, prefill plus
+    generation, one prompt at a time) and generated tokens, per setup and
+    dataset; then the run's totals."""
+    lines = [
+        "",
+        "## Reader latency per answer",
+        "",
+        (
+            "Seconds per answer for the call that produced it (prompt prefill plus generation, one prompt at a "
+            "time); generated tokens include the stop token; truncated: answers that hit the new-token limit."
+        ),
+        "",
+        (
+            "| dataset | setup | n | mean s | median s | p90 s | max s | prompt tokens (mean) | generated tokens (mean) "
+            "| truncated |"
+        ),
+        "|---|---|---|---|---|---|---|---|---|---|",
+    ]
+    datasets = sorted({row["dataset"] for row in scores})
+    for group in (["pooled"] if len(datasets) > 1 else []) + datasets:
+        for setup in cfg.setups:
+            rows = [
+                row
+                for row in scores
+                if row["setup"] == setup.name
+                and (group == "pooled" or row["dataset"] == group)
+                and row.get("latency_seconds") is not None
+            ]
+            if not rows:
+                continue
+            latency = np.array([row["latency_seconds"] for row in rows])
+            prompt = np.mean([row["prompt_tokens"] for row in rows])
+            generated = np.mean([row["completion_tokens"] for row in rows])
+            truncated = sum(1 for row in rows if row["finish_reason"] == "length")
+            lines.append(
+                f"| {group} | {setup.name} | {len(rows)} | {latency.mean():.2f} | {np.median(latency):.2f} | "
+                f"{np.percentile(latency, 90):.2f} | {latency.max():.2f} | {prompt:.0f} | {generated:.1f} | "
+                f"{truncated} |"
+            )
+    totals = reader["totals"]
+    lines += [
+        "",
+        (
+            f"- answers: {totals['answers']} from {totals['distinct_prompts']} distinct prompts (setups that "
+            f"hand the reader the same chunks share one answer); {totals['calls']} model calls in the run that wrote "
+            f"this table, {totals['cached']} answers from the response cache"
+        ),
+        f"- reader time, the sum of the distinct prompts' latencies: {totals['latency_seconds'] / 3600:.2f} h",
+        f"- wall time of the run that wrote this table: {reader['wall_seconds'] / 60:.1f} min",
+        (
+            f"- tokens: {totals['prompt_tokens']} prompt, {totals['completion_tokens']} generated; "
+            "a local model, so no per-call cost"
+        ),
+    ]
+    return lines

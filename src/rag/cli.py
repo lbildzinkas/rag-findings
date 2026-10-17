@@ -1,6 +1,6 @@
 """Command line entry point: `rag setup`, `rag sample`, `rag reader-sample`, `rag run <config>`,
-`rag headroom <config>`, `rag contenders <config>`, `rag answers <config>`, `rag routers <config>`,
-`rag prefixes <config>` and `rag writeup`."""
+`rag headroom <config>`, `rag contenders <config>`, `rag answers <config>`, `rag grade <config>`,
+`rag routers <config>`, `rag prefixes <config>` and `rag writeup`."""
 
 from __future__ import annotations
 
@@ -139,8 +139,9 @@ def main(argv: list[str] | None = None) -> int:
 
     answers_parser = sub.add_parser(
         "answers",
-        help="the v2 reader stage: assemble every setup from packed.parquet, render the fixed prompt; --dry-run "
-        "reports token counts without calling a model",
+        help="the v2 reader stage: assemble every setup from packed.parquet, render the fixed prompt, answer it "
+        "with the local reader (macOS; run with `uv run --group prefixes`) and write R14; --dry-run reports token "
+        "counts without calling a model",
     )
     answers_parser.add_argument("config", type=Path, help="path to the answers config YAML")
     answers_parser.add_argument(
@@ -149,6 +150,18 @@ def main(argv: list[str] | None = None) -> int:
         help="render every prompt of every setup and report token counts, without calling a model",
     )
     answers_parser.add_argument(
+        "--root",
+        default=None,
+        help="project root holding data/, runs/ and results/ (default: current directory)",
+    )
+
+    grade_parser = sub.add_parser(
+        "grade",
+        help="the model-graded check: grade the cached answers of a seeded subset through the `claude` "
+        "command-line tool and write R15",
+    )
+    grade_parser.add_argument("config", type=Path, help="path to the answers config YAML")
+    grade_parser.add_argument(
         "--root",
         default=None,
         help="project root holding data/, runs/ and results/ (default: current directory)",
@@ -308,13 +321,20 @@ def main(argv: list[str] | None = None) -> int:
 
         cfg = load_answers_config(args.config)
         if not args.dry_run:
-            raise SystemExit(
-                "the reader model client arrives with the reader run (the run stage reuses this stage's prompts); "
-                "use --dry-run to render prompts and report token counts"
-            )
+            from .reading import run_reader
+
+            run_reader(cfg, paths)
+            return 0
         report = dry_run(cfg, paths)
         print_dry_run(cfg, report)
         return 1 if report["over_budget_prompts"] else 0
+
+    if args.command == "grade":
+        from .answers import load_answers_config
+        from .grader import run_grader
+
+        run_grader(load_answers_config(args.config), paths)
+        return 0
 
     if args.command == "routers":
         from .routers import load_routers_table_config, run_routers_table
