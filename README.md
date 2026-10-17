@@ -18,6 +18,7 @@ The contenders use no question labels:
 - **Confidence routing:** per question, use the chunking whose top reranked chunk scores highest.
 - **Late chunking (late-128, late-256):** fixed-128's and fixed-256's chunks, each embedded from the token embeddings of its whole document instead of on its own.
 - **Contextual chunks (contextual-256):** fixed-256's chunks, each with a short context prefix written by a local model; the prefix is used for search only, and the reader gets the chunk text.
+- **Section-aware chunks with titles (section-aware-titles):** section-aware's chunks, each indexed with the dataset's own document and section title in front, for search only; no language model is involved.
 
 Budget view (as many reranked whole chunks as fit the budget, at most 20 per question), production line with nomic-embed-text-v1.5, 1024-token budget, QASPER and Natural Questions pooled (3,197 questions):
 
@@ -245,6 +246,8 @@ uv run rag contenders configs/v2/late.yaml
 uv run --group prefixes rag prefixes configs/prefixes.yaml
 uv run rag run configs/v2/qasper-contextual.yaml && uv run rag run configs/v2/nq-contextual.yaml
 uv run rag contenders configs/v2/contextual.yaml
+uv run rag run configs/v2/qasper-titles.yaml && uv run rag run configs/v2/nq-titles.yaml
+uv run rag contenders configs/v2/titles.yaml
 uv run rag reader-sample --check
 uv run rag answers configs/v2/answers.yaml --dry-run
 uv run --group prefixes rag answers configs/v2/answers.yaml   # the reader run (macOS, Apple silicon)
@@ -305,6 +308,19 @@ uv run rag contenders configs/v2/contextual.yaml
 ```
 
 The runs (production line, nomic, collection search, fixed-256, section-aware and both contextual chunkings, all budgets, budget, production and fair views) write the R2-R6 tables under run name `v2-contextual` (R6 on Natural Questions only) and export the packed spans of the budget view's 1024-token cell for both variants, which the reader stage's contextual setups can still read (dropped from its config by the ADR 0009 amendment). `contenders` regenerates the committed `results/{qasper,nq}/r13-v2-contextual.md` (R13) byte-identically: recall and precision of both contextual chunkings at every budget in the budget and production views, next to fixed-256 and section-aware, per dataset and pooled, plus contextual-256's difference from fixed-256 and the side variant's from contextual-256.
+
+### Section-aware chunks with titles
+
+The cheapest form of context enrichment on the best single chunking ([ADR 0005](docs/adr/0005-compare-routing-against-indexing-with-label-free-contenders-only.md)): **section-aware-titles** keeps section-aware's exact spans, and each chunk's search text is its title header, a blank line and the chunk text - exactly a contextual chunk's prefix, written by no model. The header comes only from the dataset's own title and section fields: a QASPER chunk reads `Paper: <paper title>. Section: <section name>.` (the abstract is the section named `Abstract`; the section names are otherwise not part of a paper's canonical text), and a Natural Questions page's canonical text already opens every section with its heading, so its header adds only the page title, `Page: <page title>.`. The BM25 index, the vectors and the reranker pairs read the search text; packing, scoring and the reader use the chunk text only, so the budget counts only its tokens.
+
+A section-aware chunking sets `titles: true` in the grid config. Its vectors and reranker scores are cached under the model key plus `#titles`, never mixing with the plain section-aware chunking's entries for the same spans, so the plain chunking's recall is reproduced exactly from the cache.
+
+```sh
+uv run rag run configs/v2/qasper-titles.yaml && uv run rag run configs/v2/nq-titles.yaml
+uv run rag contenders configs/v2/titles.yaml
+```
+
+The runs (production line, nomic, collection search, section-aware and section-aware-titles, all budgets, budget, production and fair views) write the R2-R6 tables under run name `v2-titles` (R6 on Natural Questions only) and export the packed spans of the budget view's 1024-token cell. `contenders` regenerates the committed `results/{qasper,nq}/r17-v2-titles.md` (R17) byte-identically: recall and precision of the titled chunking at every budget in the budget and production views, next to section-aware, per dataset and pooled, its difference from section-aware, and the pre-registered bar verdict of [ADR 0008](docs/adr/0008-pre-register-v2s-success-bar-and-tie-break.md) - at least +0.02 pooled recall with a 95% CI from the paired, document-clustered bootstrap excluding 0 in the budget view at 1024 tokens, and no dataset alone below -0.01.
 
 ### Reader sample and the answers stage
 

@@ -77,6 +77,8 @@ from .query_type import PRECISE, QUERY_TYPES
 from .retrieval import BM25Index
 from .run import dataset_split_hashes, excluded_counts, gold_token_sets, library_versions, load_datasets
 from .tables import write_tables
+from .titles import chunk_headers
+from .titles import key_suffix as titles_key_suffix
 from .tokens import TokenText
 
 SCHEMA_VERSION = "4"  # 2: short_recall; 3: truncated_share and used_tail; 4: budget view and packed.parquet
@@ -169,8 +171,9 @@ class _Columns:
 class _Chunking:
     """One chunking over the collection: its indexed units (children for
     small-to-big), its parents (small-to-big only), and its BM25 index;
-    for a contextual chunking its prefixes by span, and for the side
-    variant each unit's budget tokens (prefix and chunk) by (doc_id, index)."""
+    its front matter by span - a contextual chunking's prefixes, a titled
+    chunking's title headers - and, for the side variant, each unit's
+    budget tokens (prefix and chunk) by (doc_id, index)."""
 
     spec: ChunkingSpec
     units_by_doc: dict[str, list[Chunk]]
@@ -245,6 +248,8 @@ def _build_chunking(
             raise ValueError(f"chunking {spec.name}: contextual chunks are indexed by grid runs only")
         spans = [(u.doc_id, u.start, u.end) for u in all_units]
         prefixes = load_prefixes(prefix_store, spec.prefixes, documents, spans, spec.name)
+    if spec.titles:
+        prefixes = chunk_headers(documents, all_units)
     texts: dict[str, str] = {}
     budget_tokens: dict[tuple[str, int], int] | None = {} if spec.prefix_in_budget else None
     for unit in all_units:
@@ -271,11 +276,21 @@ def _build_chunking(
 
 
 def _contextual_manifest(chunkings: Sequence[_Chunking]) -> dict:
-    """Each contextual chunking's prefix set, cache-key suffix and, for the
-    side variant, the budget tokens its prefixes add per chunk."""
+    """Each chunking searched by front matter: a contextual chunking's
+    prefix set, cache-key suffix and, for the side variant, the budget
+    tokens its prefixes add per chunk; a titled chunking's cache-key
+    suffix and header count."""
     out = {}
     for chunking in chunkings:
         spec = chunking.spec
+        if spec.titles:
+            out[spec.name] = {
+                "titles": True,
+                "key_suffix": titles_key_suffix(),
+                "headers": len(chunking.prefixes),
+                "headers_empty": sum(1 for h in chunking.prefixes.values() if not h),
+            }
+            continue
         if spec.prefixes is None:
             continue
         entry: dict = {
@@ -509,10 +524,12 @@ def run_grid(
     chunk_counts: dict[str, int] = {}
     shared_characters: dict[str, int] = {}
     late: list[tuple[str, list]] = []
-    for spec in cfg.chunkings:  # every chunking (and its prefixes) first, so a missing prefix fails early
+    for spec in cfg.chunkings:  # every chunking (and its front matter) first, so a missing prefix fails early
         chunking, shared = _build_chunking(spec, documents, tokenized, run_dir / "lance", paths.prefixes, encoding)
         if spec.prefixes is not None:
             retriever.contextual[spec.name] = (key_suffix(spec.prefixes), chunking.prefixes)
+        elif spec.titles:
+            retriever.contextual[spec.name] = (titles_key_suffix(), chunking.prefixes)
         chunkings.append(chunking)
         chunk_counts[spec.name] = sum(len(units) for units in chunking.units_by_doc.values())
         shared_characters[spec.name] = shared
@@ -630,7 +647,7 @@ def run_grid(
             "retrieve_rerank_and_score": round(retrieved - indexed, 3),
             "write": round(time.monotonic() - retrieved, 3),
         }
-    if any(spec.contextual for spec in cfg.chunkings):
+    if any(spec.contextual or spec.titled for spec in cfg.chunkings):
         manifest["contextual"] = _contextual_manifest(chunkings)
     (run_dir / "manifest.json").write_text(json.dumps(manifest, sort_keys=True, indent=2) + "\n", encoding="utf-8")
 

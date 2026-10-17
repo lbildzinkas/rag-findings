@@ -1,0 +1,30 @@
+kind: grid
+dataset:
+  name: nq
+  splits: [dev]
+# section-aware chunks indexed with their document and section titles
+# (issue 36, ADR 0005): the production line, nomic only
+pipelines: [hybrid-rerank]
+embedders: [nomic]
+rrf_k: 60
+rerank_depth: 30
+chunkings:
+  # the v2 baseline's best single chunking, re-scored from the cache
+  - {name: section-aware, method: section_aware, max_tokens: 512}
+  # the same spans, searched with the page title in front (the pages'
+  # canonical text already opens each section with its heading); packing,
+  # scoring and the reader use the chunk text only
+  - {name: section-aware-titles, method: section_aware, max_tokens: 512, titles: true}
+budgets: [128, 256, 512, 1024, 2048, 4096, 8192]
+top_n: 8
+side_top_n: 5
+# the budget view (ADR 0006): at most 20 reranked whole chunks per question
+budget_top_n: 20
+scopes: [collection]
+fixed_k: [1, 5, 10]
+search_depth: 1000
+seed: 0
+run_name: v2-titles
+# packed spans for the reader (v2's primary cell: budget view, 1024 tokens)
+export_packed:
+  - {view: budget, budget: 1024, scope: collection}

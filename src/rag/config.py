@@ -35,6 +35,10 @@ contextual chunks, searched by prefix and chunk text while the reader
 reads the chunk only (see rag.contextual). `prefix_in_budget: true`
 makes the side variant whose packing counts the prefix too. Only a
 contextual chunking's canonical JSON gains these keys.
+
+A section-aware chunking can set `titles: true`: titled chunks, the same
+spans searched with their document and section title in front (see
+rag.titles). Only a titled chunking's canonical JSON gains the key.
 """
 
 from __future__ import annotations
@@ -226,7 +230,9 @@ class ChunkingSpec:
     of `child_tokens` under section-aware parents capped at `max_tokens`.
     `embedding` is `late` for late chunking (fixed windows only);
     `prefixes` names the prefix set of contextual chunks (fixed windows
-    only), and `prefix_in_budget` counts the prefix against the budget."""
+    only), and `prefix_in_budget` counts the prefix against the budget;
+    `titles` indexes section-aware chunks with their document and section
+    title in front (section-aware only)."""
 
     name: str
     method: str
@@ -236,6 +242,7 @@ class ChunkingSpec:
     embedding: str = "chunk"
     prefixes: PrefixSet | None = None
     prefix_in_budget: bool = False
+    titles: bool = False
 
     def as_dict(self) -> dict[str, Any]:
         out: dict[str, Any] = {"name": self.name, "method": self.method}
@@ -251,6 +258,8 @@ class ChunkingSpec:
             out["prefixes"] = self.prefixes.as_dict()
         if self.prefix_in_budget:
             out["prefix_in_budget"] = True
+        if self.titles:
+            out["titles"] = True
         return out
 
     @property
@@ -260,6 +269,10 @@ class ChunkingSpec:
     @property
     def contextual(self) -> bool:
         return self.prefixes is not None
+
+    @property
+    def titled(self) -> bool:
+        return self.titles
 
     @property
     def fixed_size(self) -> int | None:
@@ -348,6 +361,8 @@ def _parse_chunking(raw: dict[str, Any]) -> ChunkingSpec:
         raise ValueError(f"unknown chunking method: {method}")
     if raw.get("prefix_in_budget", False) not in (True, False):
         raise ValueError(f"chunking {raw['name']}: prefix_in_budget must be true or false")
+    if raw.get("titles", False) not in (True, False):
+        raise ValueError(f"chunking {raw['name']}: titles must be true or false")
     if int(raw.get("overlap", 0)) != 0:
         raise ValueError("only overlap 0 is supported")
     spec = ChunkingSpec(
@@ -359,9 +374,14 @@ def _parse_chunking(raw: dict[str, Any]) -> ChunkingSpec:
         embedding=str(raw.get("embedding", "chunk")),
         prefixes=_parse_prefix_set(raw["prefixes"]) if "prefixes" in raw else None,
         prefix_in_budget=bool(raw.get("prefix_in_budget", False)),
+        titles=bool(raw.get("titles", False)),
     )
     if spec.embedding not in EMBEDDINGS:
         raise ValueError(f"chunking {spec.name}: embedding must be one of {list(EMBEDDINGS)}")
+    if spec.titled and method != "section_aware":
+        raise ValueError(f"chunking {spec.name}: titled chunks need section-aware chunking (their sections)")
+    if spec.titled and (spec.contextual or spec.late or spec.prefix_in_budget):
+        raise ValueError(f"chunking {spec.name}: titled chunks have no prefixes, late embedding or prefix in budget")
     if spec.late and method != "fixed":
         raise ValueError(f"chunking {spec.name}: late chunking needs fixed windows")
     if spec.contextual and (method != "fixed" or spec.late):

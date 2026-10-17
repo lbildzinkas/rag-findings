@@ -167,7 +167,7 @@ def load_split(split: str, path: Path) -> QasperSplit:
     for doc_id in sorted(raw):
         paper = raw[doc_id]
         sections = [(sec["section_name"], sec["paragraphs"]) for sec in paper.get("full_text", [])]
-        doc = build_document(doc_id, paper.get("abstract", ""), sections)
+        doc = build_document(doc_id, paper.get("abstract", ""), sections, title=paper.get("title", ""))
         documents.append(doc)
         paragraph_spans = doc.paragraph_spans()
         paragraphs = [p.text for p in doc.paragraphs]
