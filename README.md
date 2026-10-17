@@ -117,7 +117,7 @@ At 1024 tokens, production view, comparing each pipeline's best single chunking 
 
 ## Limitations
 
-- Retrieval only: answer accuracy is not measured yet.
+- v1 measured retrieval only; v2 measures answers for three setups (section-aware, the oracle router, no retrieval) with one local reader ([R14](results/v2/r14-answers.md)), never per contender.
 - The perfect router picks in hindsight from seven chunkings, so part of the headroom is noise.
 - Two English sources (NLP papers and Wikipedia), one run per setup, one reranker depth (30), one fusion constant (k = 60).
 - The reranker orders only the top 30; section-aware often packs chunks from past rank 30, so a deeper rerank could shift its margin either way.
@@ -130,8 +130,8 @@ The write-up's [limitations section](chunking/2026-10-14-v1-results.md#5-limitat
 
 - [`chunking/2026-10-14-v1-results.md`](chunking/2026-10-14-v1-results.md): the v1 results write-up; its figures are in [`chunking/figures/`](chunking/figures).
 - [`chunking/2026-10-10-chunk-size-vs-query-type.md`](chunking/2026-10-10-chunk-size-vs-query-type.md): the research report that motivated v1, covering the literature on chunk size versus query type, budget-matched evaluation, and a QASPER pilot.
-- [`results/`](results): the committed result tables (`qasper/`, `nq/`, `pooled/`, `routing/`) and the context-prefix manifest (`prefixes/`); every number above comes from the tables.
-- [`configs/`](configs): the run configurations, the committed context-prefix prompt and the committed id lists (the Natural Questions subset, the v2 reader sample).
+- [`results/`](results): the committed result tables (`qasper/`, `nq/`, `pooled/`, `routing/`, `v2/`) and the context-prefix manifest (`prefixes/`); every number above comes from the tables.
+- [`configs/`](configs): the run configurations, the committed context-prefix and grader prompts, and the committed id lists (the Natural Questions subset, the v2 reader sample).
 - [`CONTEXT.md`](CONTEXT.md): the experiment's vocabulary.
 - [`docs/adr`](docs/adr): the settled design decisions. [ADR 0004](docs/adr/0004-run-v1-on-the-settled-question-sets-and-chunking-grid-superseding-the-reports-proposal.md) supersedes the chunking grid proposed in the research report.
 - [`src/rag`](src/rag) and [`tests`](tests): the experiment code and its unit tests.
@@ -247,6 +247,8 @@ uv run rag run configs/v2/qasper-contextual.yaml && uv run rag run configs/v2/nq
 uv run rag contenders configs/v2/contextual.yaml
 uv run rag reader-sample --check
 uv run rag answers configs/v2/answers.yaml --dry-run
+uv run --group prefixes rag answers configs/v2/answers.yaml   # the reader run (macOS, Apple silicon)
+uv run rag grade configs/v2/answers.yaml                      # the model-graded check
 ```
 
 The subsections below describe each stage.
@@ -264,7 +266,7 @@ uv run rag run configs/v2/qasper-routers.yaml && uv run rag run configs/v2/nq-ro
 uv run rag routers configs/v2/routers.yaml
 ```
 
-The runs (`kind: routers`) write `routed.parquet` (one row per question x router x view x budget, the results' columns plus `picked_chunking`) and, for the exported budget-view 1024-token cell, `packed.parquet` under pipelines `search-all` and `confidence`, which the reader stage's setups read. `rag routers` reads the routers runs next to the v2 baseline runs (no retrieval runs) and regenerates the committed `results/{qasper,nq,pooled}/r11-v2-routers.md` (R11) byte-identically for the same runs: recall and precision of both routers at every budget in the budget and production views, next to section-aware and the oracle router, and confidence routing's picks per chunking.
+The runs (`kind: routers`) write `routed.parquet` (one row per question x router x view x budget, the results' columns plus `picked_chunking`) and, for the exported budget-view 1024-token cell, `packed.parquet` under pipelines `search-all` and `confidence`, which the reader stage's search-all and confidence setups can still read (its config, since the ADR 0009 amendment, reads three setups). `rag routers` reads the routers runs next to the v2 baseline runs (no retrieval runs) and regenerates the committed `results/{qasper,nq,pooled}/r11-v2-routers.md` (R11) byte-identically for the same runs: recall and precision of both routers at every budget in the budget and production views, next to section-aware and the oracle router, and confidence routing's picks per chunking.
 
 ### Late chunking
 
@@ -275,7 +277,7 @@ uv run rag run configs/v2/qasper-late.yaml && uv run rag run configs/v2/nq-late.
 uv run rag contenders configs/v2/late.yaml
 ```
 
-The runs (production line, nomic, collection search, fixed-128, fixed-256, section-aware and the two late chunkings, all budgets, budget, production and fair views) write the R2-R6 tables under run name `v2-late` (R6 on Natural Questions only) and export the packed spans of the budget view's 1024-token cell, which the reader stage's late-128 and late-256 setups read. `contenders` reads the two runs' per-question results (no retrieval runs) and regenerates the committed `results/{qasper,nq}/r12-v2-late.md` (R12) byte-identically: recall and precision of both late chunkings at every budget in the budget and production views, next to fixed-128, fixed-256 and section-aware, per dataset and pooled, plus each contender's difference from the fixed chunking with the same spans. A window holding a single chunk reproduces that chunk's independent vector to cosine >= 0.9999; the check runs once against the real model and is recorded in [`results/late-single-chunk-cosine.md`](results/late-single-chunk-cosine.md).
+The runs (production line, nomic, collection search, fixed-128, fixed-256, section-aware and the two late chunkings, all budgets, budget, production and fair views) write the R2-R6 tables under run name `v2-late` (R6 on Natural Questions only) and export the packed spans of the budget view's 1024-token cell, which the reader stage's late-128 and late-256 setups can still read (dropped from its config by the ADR 0009 amendment). `contenders` reads the two runs' per-question results (no retrieval runs) and regenerates the committed `results/{qasper,nq}/r12-v2-late.md` (R12) byte-identically: recall and precision of both late chunkings at every budget in the budget and production views, next to fixed-128, fixed-256 and section-aware, per dataset and pooled, plus each contender's difference from the fixed chunking with the same spans. A window holding a single chunk reproduces that chunk's independent vector to cosine >= 0.9999; the check runs once against the real model and is recorded in [`results/late-single-chunk-cosine.md`](results/late-single-chunk-cosine.md).
 
 ### Context prefixes (v2)
 
@@ -302,11 +304,11 @@ uv run rag run configs/v2/qasper-contextual.yaml && uv run rag run configs/v2/nq
 uv run rag contenders configs/v2/contextual.yaml
 ```
 
-The runs (production line, nomic, collection search, fixed-256, section-aware and both contextual chunkings, all budgets, budget, production and fair views) write the R2-R6 tables under run name `v2-contextual` (R6 on Natural Questions only) and export the packed spans of the budget view's 1024-token cell for both variants, which the reader stage's contextual setups read. `contenders` regenerates the committed `results/{qasper,nq}/r13-v2-contextual.md` (R13) byte-identically: recall and precision of both contextual chunkings at every budget in the budget and production views, next to fixed-256 and section-aware, per dataset and pooled, plus contextual-256's difference from fixed-256 and the side variant's from contextual-256.
+The runs (production line, nomic, collection search, fixed-256, section-aware and both contextual chunkings, all budgets, budget, production and fair views) write the R2-R6 tables under run name `v2-contextual` (R6 on Natural Questions only) and export the packed spans of the budget view's 1024-token cell for both variants, which the reader stage's contextual setups can still read (dropped from its config by the ADR 0009 amendment). `contenders` regenerates the committed `results/{qasper,nq}/r13-v2-contextual.md` (R13) byte-identically: recall and precision of both contextual chunkings at every budget in the budget and production views, next to fixed-256 and section-aware, per dataset and pooled, plus contextual-256's difference from fixed-256 and the side variant's from contextual-256.
 
 ### Reader sample and the answers stage
 
-The v2 reader stage's offline half (ADR 0009). `reader-sample` draws the 1,000-question reader sample - 500 QASPER questions filled by whole papers in seeded order (a paper that would overshoot is skipped), 250 precise and 250 context Natural Questions pages - and commits it as ids only (`configs/v2/reader-sample.txt`, reproducible from its seed; `--check` verifies the committed list against a fresh draw). The loaders also carry each question's reference answers (QASPER: each answering annotator's extractive spans joined with ", ", free-form answer, or "Yes"/"No"; NQ precise: the short-answer texts and yes/no answers; NQ context: the long-answer paragraph) - a field the retrieval path never reads.
+The v2 reader stage (ADR 0009). `reader-sample` draws the 1,000-question reader sample - 500 QASPER questions filled by whole papers in seeded order (a paper that would overshoot is skipped), 250 precise and 250 context Natural Questions pages - and commits it as ids only (`configs/v2/reader-sample.txt`, reproducible from its seed; `--check` verifies the committed list against a fresh draw). The loaders also carry each question's reference answers (QASPER: each answering annotator's extractive spans joined with ", ", free-form answer, or "Yes"/"No"; NQ precise: the short-answer texts and yes/no answers; NQ context: the long-answer paragraph) - a field the retrieval path never reads.
 
 ```sh
 uv run rag reader-sample --check   # verify the committed sample against a fresh draw

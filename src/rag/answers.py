@@ -1,11 +1,13 @@
-"""`rag answers <config>`: the reader stage's offline half (ADR 0009).
+"""`rag answers <config>`: the v2 reader stage (ADR 0009, amended
+2026-10-17).
 
 Assembles every reader setup from the runs' `packed.parquet` at the
 budget view's primary cell (v2: budget view, 1024 tokens, collection
 search), renders the fixed reader prompt for every setup and question,
 and - with `--dry-run` - reports prompt token counts without calling a
-model. The reader model client arrives with the reader run, which only
-runs this stage and fills the answer table R14.
+model. Without `--dry-run`, rag.reading runs this stage: every prompt is
+answered by the local reader (rag.reader_model) and the answer table R14
+is filled.
 
 Setups (config `kind: answers`):
 
@@ -26,7 +28,8 @@ packed `tokens` already count the prefix.
 A setup whose source runs are not on disk yet is reported as pending.
 
 Answer scores live in runs/<run_name>/answers.parquet (one row per
-question x setup: ids, hashes and scores only, never answer text);
+question x setup: ids, hashes, scores and the reader call's record,
+never answer text);
 `render_r14` turns them into the answer table R14: answer score per
 setup and dataset with document-clustered bootstrap CIs and the paired
 difference from section-aware.
