@@ -51,7 +51,7 @@ import pyarrow.compute as pc
 import pyarrow.parquet as pq
 import yaml
 
-from .bootstrap import Estimate, Interval, percentile_interval, resample_counts
+from .bootstrap import Estimate, Interval, clustered_mean, percentile_interval, resample_counts
 from .cache import SpanKey
 from .config import PRODUCTION_LINE, DatasetRef, _parse_chunking, _parse_dataset
 from .contextual import load_prefixes, search_text
@@ -752,19 +752,6 @@ def write_answers(path: Path, rows: list[dict]) -> None:
 
 def read_answers(path: Path) -> list[dict]:
     return pq.read_table(path).to_pylist()
-
-
-def clustered_mean(values: np.ndarray, cluster: np.ndarray, counts: np.ndarray) -> Estimate:
-    """Mean of per-question values with a document-clustered bootstrap: the
-    point estimate on the original sample and one mean per resample."""
-    n_clusters = counts.shape[1]
-    sums = np.zeros(n_clusters)
-    np.add.at(sums, cluster, values)
-    ones = np.zeros(n_clusters)
-    np.add.at(ones, cluster, 1.0)
-    weights = np.vstack([np.ones((1, n_clusters)), counts])
-    means = (weights @ sums) / (weights @ ones)
-    return Estimate(point=float(means[0]), samples=means[1:])
 
 
 @dataclass(frozen=True)

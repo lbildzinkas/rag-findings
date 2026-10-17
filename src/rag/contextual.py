@@ -44,8 +44,11 @@ def key_suffix(prefix_set: PrefixSet) -> str:
 
 
 def search_text(prefix: str, chunk_text: str) -> str:
-    """What search reads for a contextual chunk (and the side variant's reader)."""
-    return prefix + SEPARATOR + chunk_text
+    """What search reads for a contextual chunk (and the side variant's
+    reader): its prefix, a blank line and the chunk text. An empty front
+    matter (a titled chunk with neither a title nor a section name) leaves
+    the chunk searched by its own text."""
+    return prefix + SEPARATOR + chunk_text if prefix else chunk_text
 
 
 def load_prefixes(

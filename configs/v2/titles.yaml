@@ -1,0 +1,33 @@
+kind: contenders
+# R17: section-aware chunks indexed with their document and section titles
+# (issue 36) against the plain section-aware chunking, with the
+# pre-registered v2 contender bar (ADR 0008)
+table: r17
+title: section-aware chunks with their titles next to section-aware
+runs: [qasper/v2-titles, nq/v2-titles]
+scope: collection
+pipeline: hybrid-rerank
+embedder: nomic
+chunkings: [section-aware, section-aware-titles]
+# same spans, searched with the dataset's own document and section titles
+pairs:
+  - [section-aware-titles, section-aware]
+run_name: v2-titles
+# the bar every v2 contender is judged by (ADR 0008), fixed before the run:
+# +0.02 pooled recall with a 95% CI excluding 0 in the budget view at 1024
+# tokens, and no dataset alone below -0.01
+gate:
+  view: budget
+  budget: 1024
+  min_gain: 0.02
+  max_loss: 0.01
+  confidence: 0.95
+  resamples: 10000
+  seed: 0
+notes:
+  - >-
+    section-aware-titles keeps section-aware's spans and searches them with the
+    dataset's own document and section title in front, for search only (BM25,
+    the vector and the reranker pairs); the reader and the recall score see the
+    chunk text, and the budget counts only that text. No language model is
+    involved.

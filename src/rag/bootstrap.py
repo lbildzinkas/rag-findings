@@ -192,6 +192,21 @@ def bootstrap_p(samples: np.ndarray) -> float:
     return float(min(1.0, 2 * min(np.mean(samples <= 0), np.mean(samples >= 0))))
 
 
+def clustered_mean(values: np.ndarray, cluster: np.ndarray, counts: np.ndarray) -> Estimate:
+    """Mean of per-question values with a cluster-level (document)
+    bootstrap: the point estimate on the original sample and one mean per
+    resample, clusters drawn with replacement from `counts`. The point
+    estimate and the resamples share one code path."""
+    n_clusters = counts.shape[1]
+    sums = np.zeros(n_clusters)
+    np.add.at(sums, cluster, values)
+    ones = np.zeros(n_clusters)
+    np.add.at(ones, cluster, 1.0)
+    weights = np.vstack([np.ones((1, n_clusters)), counts])
+    means = (weights @ sums) / (weights @ ones)
+    return Estimate(point=float(means[0]), samples=means[1:])
+
+
 def holm_intervals(samples: Sequence[np.ndarray], confidence: float) -> list[Interval]:
     """Holm-adjusted percentile intervals for a family of statistics.
 

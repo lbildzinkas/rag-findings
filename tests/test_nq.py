@@ -463,6 +463,8 @@ def test_load_nq_builds_documents_questions_and_spans(tmp_path):
 
     documents = {d.doc_id: d for d in split.documents}
     assert sorted(documents) == ["q-long", "q-long2", "q-short", "q-yesno"]  # the subset's pages
+    assert documents["q-short"].title == "Page q-short"  # the page's own title from the dataset
+    assert documents["q-short"].headings_in_text  # each section's heading opens it in the text
 
     by_id = {q.question_id: q for q in split.questions}
     short = by_id["q-short"]

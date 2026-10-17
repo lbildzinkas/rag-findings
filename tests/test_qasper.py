@@ -79,6 +79,8 @@ def test_canonical_text_layout(tmp_path):
     doc = {d.doc_id: d for d in split.documents}["paperA"]
     assert doc.text == "Kerberos abstract.\n\n" + PARA_A + "\n\n" + PARA_B
     assert [p.section for p in doc.paragraphs] == ["Abstract", "Intro", "Details"]
+    assert doc.title == "Paper paperA"  # the paper's own title from the dataset
+    assert not doc.headings_in_text  # the section names are not part of the text
 
 
 def test_exact_and_fuzzy_evidence_anchor(tmp_path):

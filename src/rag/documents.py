@@ -5,6 +5,13 @@ by every section paragraph, joined with blank lines. Each document
 records its paragraphs' character spans so evidence can be anchored, and
 a source hash (sha256 of the canonical text) so spans can be checked
 against their document.
+
+A document also carries its own title from the dataset (a QASPER paper's
+title, a Natural Questions page title) and whether its sections' heading
+text is part of the canonical text: QASPER's canonical text holds only
+section paragraphs, while a Natural Questions page's canonical text
+opens every section with its heading. Both fields feed the title headers
+a titled chunking indexes (see rag.titles); nothing else reads them.
 """
 
 from __future__ import annotations
@@ -34,6 +41,8 @@ class Document:
     doc_id: str
     text: str
     paragraphs: tuple[Paragraph, ...]
+    title: str = ""  # the dataset's own document title (paper title, page title)
+    headings_in_text: bool = False  # the canonical text opens each section with its heading
 
     @property
     def source_hash(self) -> str:
@@ -43,11 +52,15 @@ class Document:
         return [(p.start, p.end) for p in self.paragraphs]
 
 
-def build_document(doc_id: str, abstract: str, sections: list[tuple[str, list[str]]]) -> Document:
+def build_document(
+    doc_id: str, abstract: str, sections: list[tuple[str, list[str]]], title: str = "", headings_in_text: bool = False
+) -> Document:
     """Join the abstract and section paragraphs into one canonical text.
 
     `sections` is a list of (section_name, paragraphs). Empty strings are
-    skipped; paragraphs are separated by blank lines.
+    skipped; paragraphs are separated by blank lines. `title` is the
+    document's own title from the dataset and `headings_in_text` whether the
+    section names are part of the canonical text (both for rag.titles).
     """
     parts: list[tuple[str, int, str]] = []
     if abstract:
@@ -68,4 +81,10 @@ def build_document(doc_id: str, abstract: str, sections: list[tuple[str, list[st
         pieces.append(para)
         paragraphs.append(Paragraph(start=start, end=end, text=para, section=section_name, section_index=section_index))
         pos = end
-    return Document(doc_id=doc_id, text="".join(pieces), paragraphs=tuple(paragraphs))
+    return Document(
+        doc_id=doc_id,
+        text="".join(pieces),
+        paragraphs=tuple(paragraphs),
+        title=title,
+        headings_in_text=headings_in_text,
+    )

@@ -24,6 +24,14 @@ prefix and chunk text: BM25 (built by the grid), its vectors and its
 reranker pairs read it, and its vectors and scores are cached under the
 model key plus the prefix set's id. Packing and scoring see only the
 chunk's span.
+
+A titled chunking (see rag.titles) is searched by its title header, the
+dataset's own document and section title in front of the chunk text
+(no model writes it): BM25, its vectors and its reranker pairs read it,
+and its vectors and scores are cached under the model key plus `#titles`,
+apart from the plain section-aware chunking's entries for the same
+spans. Packing, scoring and the reader see only the chunk's span and
+tokens.
 """
 
 from __future__ import annotations
@@ -112,7 +120,7 @@ class Retriever:
     embed_stats: EmbedStats = field(default_factory=EmbedStats)
     truncated: dict[tuple[str, str], float] = field(default_factory=dict)  # (chunking, embedder) -> share
     late_windows: dict[str, WindowStats] = field(default_factory=dict)  # embedder -> late chunking's windows
-    # contextual chunkings: name -> (cache key suffix, prefix by span)
+    # chunkings searched by front matter: name -> (cache key suffix, front matter by span)
     contextual: dict[str, tuple[str, dict[SpanKey, str]]] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
@@ -127,12 +135,14 @@ class Retriever:
 
     def key_suffix(self, chunking: str | None) -> str:
         """The cache-key suffix of a chunking's vectors and reranker scores
-        (empty except for contextual chunkings)."""
+        (empty except for chunkings searched by front matter: a contextual
+        chunking's prefix set, a titled chunking's titles)."""
         return self.contextual[chunking][0] if chunking in self.contextual else ""
 
     def search_text(self, chunk: Chunk, chunking: str | None = None) -> str:
-        """What search reads for a chunk: its text, or for a contextual
-        chunking its prefix, a blank line and its text."""
+        """What search reads for a chunk: its text, or for a chunking
+        searched by front matter (a contextual chunking's prefix, a titled
+        chunking's header) the front matter, a blank line and its text."""
         text = chunk_text(self.documents[chunk.doc_id], chunk)
         if chunking not in self.contextual:
             return text

@@ -298,10 +298,14 @@ def canonical_page(tokens: list[str], is_html: list[bool]) -> CanonicalPage:
     return CanonicalPage(text="".join(pieces), token_spans=tuple(spans), paragraphs=tuple(paragraphs))
 
 
-def page_document(doc_id: str, tokens: list[str], is_html: list[bool]) -> tuple[Document, CanonicalPage]:
-    """The page as a Document over its canonical text, plus the page."""
+def page_document(
+    doc_id: str, tokens: list[str], is_html: list[bool], title: str = ""
+) -> tuple[Document, CanonicalPage]:
+    """The page as a Document over its canonical text, plus the page. The
+    Document carries the page's own title and marks its headings as part
+    of the text (both for rag.titles)."""
     page = canonical_page(tokens, is_html)
-    doc = Document(doc_id=doc_id, text=page.text, paragraphs=page.paragraphs)
+    doc = Document(doc_id=doc_id, text=page.text, paragraphs=page.paragraphs, title=title, headings_in_text=True)
     return doc, page
 
 
@@ -328,6 +332,7 @@ class NqExample:
     long_answers: tuple[tuple[int, int], ...]  # per annotator, (-1, -1) when none
     short_answers: tuple[tuple[tuple[int, int], ...], ...]  # per annotator
     yes_no: tuple[int, ...]  # per annotator: -1 none, 0 no, 1 yes
+    title: str = ""  # the page's own title from the dataset
 
     @property
     def n_long(self) -> int:
@@ -369,10 +374,18 @@ def _normalise(raw: dict) -> NqExample:
         long_answers=tuple((la["start_token"], la["end_token"]) for la in ann["long_answer"]),
         short_answers=tuple(short_answers),
         yes_no=tuple(ann["yes_no_answer"]),
+        title=raw["document"].get("title") or "",
     )
 
 
-NQ_COLUMNS = ["id", "question.text", "document.tokens.token", "document.tokens.is_html", "annotations"]
+NQ_COLUMNS = [
+    "id",
+    "question.text",
+    "document.title",
+    "document.tokens.token",
+    "document.tokens.is_html",
+    "annotations",
+]
 
 
 def iter_examples(shard_paths: list[Path], batch_size: int = 64) -> Iterator[NqExample]:
@@ -519,7 +532,7 @@ def load_nq(paths, split: str = NQ_CONFIG) -> NqSplit:
             continue
         if example.question_id in documents:
             raise ValueError(f"duplicate question id in the dev config: {example.question_id}")
-        doc, page = page_document(example.question_id, example.tokens, example.is_html)
+        doc, page = page_document(example.question_id, example.tokens, example.is_html, title=example.title)
         source_hash = doc.source_hash
 
         annotators: list[tuple[LabelledSpan, ...]] = []
