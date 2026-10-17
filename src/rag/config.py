@@ -28,6 +28,13 @@ A fixed chunking can set `embedding: late` (default `chunk`): late
 chunking, the same spans with vectors pooled from the whole document's
 token embeddings (see rag.late). Only that chunking's canonical JSON
 gains the key.
+
+A fixed chunking can also name a prefix set (`prefixes: {model,
+revision, prompt_sha256}`, the context prefixes `rag prefixes` wrote):
+contextual chunks, searched by prefix and chunk text while the reader
+reads the chunk only (see rag.contextual). `prefix_in_budget: true`
+makes the side variant whose packing counts the prefix too. Only a
+contextual chunking's canonical JSON gains these keys.
 """
 
 from __future__ import annotations
@@ -191,11 +198,35 @@ EMBEDDING_PIPELINES = (PRODUCTION_LINE, "hybrid", "vector")
 
 
 @dataclass(frozen=True)
+class PrefixSet:
+    """The context prefixes one prefix model wrote from one prompt: the
+    store's (model, prompt hash) key."""
+
+    model_id: str
+    revision: str
+    prompt_sha256: str
+
+    @property
+    def model_key(self) -> str:
+        return f"{self.model_id}@{self.revision}"
+
+    @property
+    def id(self) -> str:
+        """The prefix set's id: prefix model and prompt hash."""
+        return f"{self.model_key}:{self.prompt_sha256}"
+
+    def as_dict(self) -> dict[str, Any]:
+        return {"model": self.model_id, "revision": self.revision, "prompt_sha256": self.prompt_sha256}
+
+
+@dataclass(frozen=True)
 class ChunkingSpec:
     """One chunking of the grid: fixed windows (`chunk_tokens`),
     section-aware chunks capped at `max_tokens`, or small-to-big children
     of `child_tokens` under section-aware parents capped at `max_tokens`.
-    `embedding` is `late` for late chunking (fixed windows only)."""
+    `embedding` is `late` for late chunking (fixed windows only);
+    `prefixes` names the prefix set of contextual chunks (fixed windows
+    only), and `prefix_in_budget` counts the prefix against the budget."""
 
     name: str
     method: str
@@ -203,6 +234,8 @@ class ChunkingSpec:
     max_tokens: int = 0
     child_tokens: int = 0
     embedding: str = "chunk"
+    prefixes: PrefixSet | None = None
+    prefix_in_budget: bool = False
 
     def as_dict(self) -> dict[str, Any]:
         out: dict[str, Any] = {"name": self.name, "method": self.method}
@@ -214,11 +247,19 @@ class ChunkingSpec:
             out["child_tokens"] = self.child_tokens
         if self.late:
             out["embedding"] = self.embedding
+        if self.prefixes is not None:
+            out["prefixes"] = self.prefixes.as_dict()
+        if self.prefix_in_budget:
+            out["prefix_in_budget"] = True
         return out
 
     @property
     def late(self) -> bool:
         return self.embedding == "late"
+
+    @property
+    def contextual(self) -> bool:
+        return self.prefixes is not None
 
     @property
     def fixed_size(self) -> int | None:
@@ -305,6 +346,8 @@ def _parse_chunking(raw: dict[str, Any]) -> ChunkingSpec:
     method = raw["method"]
     if method not in CHUNKING_METHODS:
         raise ValueError(f"unknown chunking method: {method}")
+    if raw.get("prefix_in_budget", False) not in (True, False):
+        raise ValueError(f"chunking {raw['name']}: prefix_in_budget must be true or false")
     if int(raw.get("overlap", 0)) != 0:
         raise ValueError("only overlap 0 is supported")
     spec = ChunkingSpec(
@@ -314,17 +357,34 @@ def _parse_chunking(raw: dict[str, Any]) -> ChunkingSpec:
         max_tokens=int(raw["max_tokens"]) if method != "fixed" else 0,
         child_tokens=int(raw["child_tokens"]) if method == "small_to_big" else 0,
         embedding=str(raw.get("embedding", "chunk")),
+        prefixes=_parse_prefix_set(raw["prefixes"]) if "prefixes" in raw else None,
+        prefix_in_budget=bool(raw.get("prefix_in_budget", False)),
     )
     if spec.embedding not in EMBEDDINGS:
         raise ValueError(f"chunking {spec.name}: embedding must be one of {list(EMBEDDINGS)}")
     if spec.late and method != "fixed":
         raise ValueError(f"chunking {spec.name}: late chunking needs fixed windows")
+    if spec.contextual and (method != "fixed" or spec.late):
+        raise ValueError(f"chunking {spec.name}: contextual chunks need fixed windows embedded chunk by chunk")
+    if spec.prefix_in_budget and not spec.contextual:
+        raise ValueError(f"chunking {spec.name}: prefix_in_budget needs a prefix set (prefixes)")
     sizes = {"fixed": [spec.chunk_tokens], "section_aware": [spec.max_tokens]}.get(
         method, [spec.max_tokens, spec.child_tokens]
     )
     if any(n <= 0 for n in sizes):
         raise ValueError(f"chunking {spec.name}: token sizes must be positive")
     return spec
+
+
+def _parse_prefix_set(raw: dict[str, Any]) -> PrefixSet:
+    prefix_set = PrefixSet(
+        model_id=str(raw["model"]), revision=str(raw["revision"]), prompt_sha256=str(raw["prompt_sha256"])
+    )
+    if len(prefix_set.revision) != 40:
+        raise ValueError("a prefix set's revision must be a full 40-character commit id")
+    if len(prefix_set.prompt_sha256) != 64:
+        raise ValueError("a prefix set's prompt_sha256 must be a full sha256")
+    return prefix_set
 
 
 def parse_grid_config(raw: dict[str, Any]) -> GridConfig:

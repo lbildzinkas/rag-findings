@@ -6,8 +6,12 @@ Question embeddings are keyed by model and the hash of the question text.
 Reranker scores are keyed by model, question and chunk: the question hash
 plus the chunk span. A span names the same text in every chunking, so a
 chunk that two chunkings share (or that both search scopes and both
-embedders retrieve) is embedded or reranked once. Writes commit as they
-go, so an interrupted run resumes from what it already computed.
+embedders retrieve) is embedded or reranked once. Chunkings that search
+a different text than the chunk's own keep their entries apart by a
+suffix on the model key: late chunking its vectors (rag.late),
+contextual chunks their vectors and reranker scores (rag.contextual).
+Writes commit as they go, so an interrupted run resumes from what it
+already computed.
 """
 
 from __future__ import annotations

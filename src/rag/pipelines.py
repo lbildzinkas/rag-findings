@@ -18,6 +18,12 @@ A late chunking (see rag.late) is indexed from vectors pooled out of
 whole-document token embeddings, cached under the model key plus
 `#late-8192`; its BM25 index, reranker scores, packing and scoring are
 those of the fixed chunking with the same spans.
+
+A contextual chunking (see rag.contextual) is searched by its search text,
+prefix and chunk text: BM25 (built by the grid), its vectors and its
+reranker pairs read it, and its vectors and scores are cached under the
+model key plus the prefix set's id. Packing and scoring see only the
+chunk's span.
 """
 
 from __future__ import annotations
@@ -31,6 +37,7 @@ import numpy as np
 from .cache import Cache, SpanKey
 from .chunking import Chunk, chunk_text
 from .config import PIPELINES, PRODUCTION_LINE, GridConfig
+from .contextual import search_text
 from .documents import Document
 from .late import LATE_KEY_SUFFIX, LATE_WINDOW, Span, WindowStats, late_vectors, plan_windows
 from .models import Embedder, EmbedderSpec, ModelSource, RerankerSpec
@@ -105,6 +112,8 @@ class Retriever:
     embed_stats: EmbedStats = field(default_factory=EmbedStats)
     truncated: dict[tuple[str, str], float] = field(default_factory=dict)  # (chunking, embedder) -> share
     late_windows: dict[str, WindowStats] = field(default_factory=dict)  # embedder -> late chunking's windows
+    # contextual chunkings: name -> (cache key suffix, prefix by span)
+    contextual: dict[str, tuple[str, dict[SpanKey, str]]] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         self._embedders = {name: self.models.embedder(name) for name in self.cfg.embedders}
@@ -116,26 +125,36 @@ class Retriever:
     def span(self, chunk: Chunk) -> SpanKey:
         return (self._doc_hashes[chunk.doc_id], chunk.start, chunk.end)
 
-    def _text(self, chunk: Chunk) -> str:
-        return chunk_text(self.documents[chunk.doc_id], chunk)
+    def key_suffix(self, chunking: str | None) -> str:
+        """The cache-key suffix of a chunking's vectors and reranker scores
+        (empty except for contextual chunkings)."""
+        return self.contextual[chunking][0] if chunking in self.contextual else ""
+
+    def search_text(self, chunk: Chunk, chunking: str | None = None) -> str:
+        """What search reads for a chunk: its text, or for a contextual
+        chunking its prefix, a blank line and its text."""
+        text = chunk_text(self.documents[chunk.doc_id], chunk)
+        if chunking not in self.contextual:
+            return text
+        return search_text(self.contextual[chunking][1][self.span(chunk)], text)
 
     def index_chunking(self, name: str, units: Sequence[Chunk], log=_log) -> None:
         """Embed one chunking's units under every embedder (from the cache
         where possible), index them, and record the share of units longer
         than each embedder's input limit."""
-        texts = [self._text(u) for u in units]
+        texts = [self.search_text(u, name) for u in units]
         for embedder_name, embedder in self._embedders.items():
             spec = embedder.spec
             lengths = embedder.input_tokens(texts)
             over = sum(n > spec.max_tokens for n in lengths)
             self.truncated[(name, embedder_name)] = over / len(units) if units else 0.0
-            vectors = self._unit_vectors(embedder, units, texts, log, f"{name} x {embedder_name}")
+            key = model_key(spec) + self.key_suffix(name)
+            vectors = self._unit_vectors(embedder, key, units, texts, log, f"{name} x {embedder_name}")
             index = VectorIndex(self.lance_dir, table=f"{name}--{embedder_name}")
             index.build(units, vectors)
             self._vectors[(name, embedder_name)] = index
 
-    def _unit_vectors(self, embedder: Embedder, units: Sequence[Chunk], texts: list[str], log, label: str):
-        key = model_key(embedder.spec)
+    def _unit_vectors(self, embedder: Embedder, key: str, units: Sequence[Chunk], texts: list[str], log, label: str):
         cached: dict[str, dict[tuple[int, int], np.ndarray]] = {}
         vectors: list[np.ndarray | None] = []
         for unit in units:
@@ -241,10 +260,22 @@ class Retriever:
                     to_rerank.append(((name, scope), embedder, fused))
                 out[(name, scope)] = rankings
         if self._reranker is not None:
-            scores = self._rerank_scores(question.text, [fused[: cfg.rerank_depth] for _, _, fused in to_rerank])
+            # one batch per cache key: chunkings with the same search texts share their scores
+            by_suffix: dict[str, list[tuple[tuple[str, str], str, list[Chunk]]]] = {}
+            for entry in to_rerank:
+                by_suffix.setdefault(self.key_suffix(entry[0][0]), []).append(entry)
+            scores: dict[tuple[str, SpanKey], float] = {}
+            for suffix, entries in by_suffix.items():
+                heads = [fused[: cfg.rerank_depth] for _, _, fused in entries]
+                found = self._rerank_scores(question.text, heads, chunking=entries[0][0][0])
+                scores.update(((suffix, span), score) for span, score in found.items())
             for key, embedder, fused in to_rerank:
-                ranked = rerank_head(fused, cfg.rerank_depth, lambda head: [scores[self.span(c)] for c in head])
-                head_scores = tuple(scores[self.span(c)] for c in ranked[: min(cfg.rerank_depth, len(fused))])
+                suffix = self.key_suffix(key[0])
+                ranked = rerank_head(
+                    fused, cfg.rerank_depth, lambda head, s=suffix: [scores[(s, self.span(c))] for c in head]
+                )
+                head = ranked[: min(cfg.rerank_depth, len(fused))]
+                head_scores = tuple(scores[(suffix, self.span(c))] for c in head)
                 out[key].append(
                     Ranking(
                         PRODUCTION_LINE,
@@ -262,9 +293,14 @@ class Retriever:
             out[key] = kept
         return out
 
-    def _rerank_scores(self, question: str, heads: Sequence[Sequence[Chunk]]) -> dict[SpanKey, float]:
+    def _rerank_scores(
+        self, question: str, heads: Sequence[Sequence[Chunk]], chunking: str | None = None
+    ) -> dict[SpanKey, float]:
+        """Reranker scores of every chunk in `heads`, from the cache where
+        possible, under `chunking`'s cache key and search texts (every head
+        must share them)."""
         assert self._reranker is not None
-        key = model_key(self._reranker.spec)
+        key = model_key(self._reranker.spec) + self.key_suffix(chunking)
         scores = self.cache.scores(key, question)
         candidates: dict[SpanKey, Chunk] = {}
         for head in heads:
@@ -275,7 +311,7 @@ class Retriever:
         missing = [span for span in candidates if span not in scores]
         self.stats.pairs_cached += len(candidates) - len(missing)
         if missing:
-            new = self._reranker.score([(question, self._text(candidates[span])) for span in missing])
+            new = self._reranker.score([(question, self.search_text(candidates[span], chunking)) for span in missing])
             self.cache.put_scores(key, question, zip(missing, new, strict=True))
             scores.update(zip(missing, new, strict=True))
             self.stats.pairs_scored += len(missing)

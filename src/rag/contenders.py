@@ -9,7 +9,8 @@ configured pipeline, embedder and search scope. Two views are read: the
 budget view (each run's `budget_top_n`) and the production view (its
 `top_n`). A `pairs` entry (contender, reference) adds the contender's
 difference from the reference, as for late-128 against fixed-128, which
-share every span and differ only in their vectors.
+share every span and differ only in their vectors. Optional `notes`
+are printed under the tables (a config without them keeps its hash).
 
 One table per run's dataset, results/<dataset>/<table>-<run_name>.md,
 each with that dataset's cells and the pooled ones. Means use math.fsum
@@ -49,9 +50,10 @@ class ContendersConfig:
     scope: str = "collection"
     pipeline: str = PRODUCTION_LINE
     embedder: str = "nomic"
+    notes: tuple[str, ...] = ()  # printed under the tables
 
     def as_dict(self) -> dict[str, Any]:
-        return {
+        out: dict[str, Any] = {
             "kind": "contenders",
             "table": self.table,
             "title": self.title,
@@ -63,6 +65,9 @@ class ContendersConfig:
             "pairs": [list(p) for p in self.pairs],
             "run_name": self.run_name,
         }
+        if self.notes:
+            out["notes"] = list(self.notes)
+        return out
 
 
 def load_contenders_config(path: Path) -> ContendersConfig:
@@ -83,6 +88,7 @@ def parse_contenders_config(raw: dict[str, Any]) -> ContendersConfig:
             scope=str(raw.get("scope", "collection")),
             pipeline=str(raw.get("pipeline", PRODUCTION_LINE)),
             embedder=str(raw.get("embedder", "nomic")),
+            notes=tuple(str(note) for note in raw.get("notes", ())),
         )
     except (KeyError, TypeError, ValueError) as exc:
         raise ValueError(f"invalid contenders config: {exc}") from exc
@@ -268,6 +274,7 @@ def _render(
     lines += [
         "",
         f"{NA}: a fixed chunking whose chunk is bigger than the budget is not scored at that budget.",
+        *(line for note in cfg.notes for line in ("", note)),
         "",
     ]
     return "\n".join(lines)

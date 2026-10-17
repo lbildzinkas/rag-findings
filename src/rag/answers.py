@@ -17,9 +17,13 @@ Setups (config `kind: answers`):
   reader text is the picked chunking's packed chunks;
 - `none`: the no-retrieval floor, the same prompt without a context.
 
-A setup whose source runs are not on disk yet is reported as pending:
-the contextual chunkings arrive with their own
-tickets, and this stage covers them when they land.
+The reader text of a packed chunk is its chunk text, except for the
+side variant of contextual chunks (a chunking with `prefix_in_budget` in
+its run's config), whose reader receives the chunk's prefix, a blank
+line and its text, read from the prefix store (see rag.contextual); its
+packed `tokens` already count the prefix.
+
+A setup whose source runs are not on disk yet is reported as pending.
 
 Answer scores live in runs/<run_name>/answers.parquet (one row per
 question x setup: ids, hashes and scores only, never answer text);
@@ -45,7 +49,9 @@ import pyarrow.parquet as pq
 import yaml
 
 from .bootstrap import Estimate, Interval, percentile_interval, resample_counts
-from .config import PRODUCTION_LINE, DatasetRef, _parse_dataset
+from .cache import SpanKey
+from .config import PRODUCTION_LINE, DatasetRef, _parse_chunking, _parse_dataset
+from .contextual import load_prefixes, search_text
 from .documents import Document
 from .labels import Question
 from .paths import Paths
@@ -389,6 +395,28 @@ def oracle_picks(
     return picks
 
 
+def reader_prefixes(
+    run_dir: Path,
+    chunking: str | None,
+    packed: dict[str, tuple[PackedSpan, ...]],
+    documents: dict[str, Document],
+    paths: Paths,
+) -> dict[SpanKey, str] | None:
+    """The prefixes the reader receives with the packed chunks: those of the
+    side variant of contextual chunks (`prefix_in_budget` in the run's
+    config), by span; None for every other chunking, and for a run without
+    a manifest (only test fixtures lack one)."""
+    manifest = run_dir / "manifest.json"
+    if chunking is None or not manifest.is_file():
+        return None
+    config = json.loads(manifest.read_text(encoding="utf-8"))["config"]
+    specs = [_parse_chunking(raw) for raw in config["chunkings"] if raw["name"] == chunking]
+    if not specs or not specs[0].prefix_in_budget or specs[0].prefixes is None:
+        return None
+    spans = [(s.doc_id, s.start, s.end) for question_spans in packed.values() for s in question_spans]
+    return load_prefixes(paths.prefixes, specs[0].prefixes, documents, spans, chunking)
+
+
 def setup_missing(setup: SetupSpec, paths: Paths) -> list[str]:
     """The source files a setup waits for (empty when all are on disk)."""
     if setup.kind == "none":
@@ -444,6 +472,7 @@ def render_setup_prompts(
     separator_tokens = len(TokenText(CHUNK_SEPARATOR, encoding).token_ids)
     packed_by_dataset: dict[str, dict[str, dict[str, tuple[PackedSpan, ...]]]] = {}
     picks_by_dataset: dict[str, dict[str, str]] = {}
+    prefixes_by_dataset: dict[str, dict[SpanKey, str]] = {}
     if setup.kind == "oracle":
         for dataset, run in setup.runs:
             run_dir = paths.run_dir(run, dataset)
@@ -458,17 +487,14 @@ def render_setup_prompts(
             }
     elif setup.kind == "packed":
         for dataset, run in setup.runs:
-            packed_by_dataset[dataset] = {
-                "": load_packed(
-                    paths.run_dir(run, dataset),
-                    setup.pipeline or cfg.pipeline,
-                    cfg.embedder,
-                    setup.chunking,
-                    cfg.view,
-                    cfg.budget,
-                    cfg.scope,
-                )
-            }
+            run_dir = paths.run_dir(run, dataset)
+            packed = load_packed(
+                run_dir, setup.pipeline or cfg.pipeline, cfg.embedder, setup.chunking, cfg.view, cfg.budget, cfg.scope
+            )
+            packed_by_dataset[dataset] = {"": packed}
+            prefixes = reader_prefixes(run_dir, setup.chunking, packed, documents, paths)
+            if prefixes is not None:
+                prefixes_by_dataset[dataset] = prefixes
 
     rendered: list[RenderedPrompt] = []
     for dataset in DATASETS:
@@ -476,6 +502,7 @@ def render_setup_prompts(
             continue
         sources = packed_by_dataset.get(dataset, {})
         picks = picks_by_dataset.get(dataset, {})
+        prefixes = prefixes_by_dataset.get(dataset)
         for sampled in sample.per_dataset[dataset]:
             question = sampled.question
             if setup.kind == "none":
@@ -490,6 +517,12 @@ def render_setup_prompts(
             else:
                 spans = sources[""].get(question.question_id, ())
             chunks = tuple(documents[s.doc_id].text[s.start : s.end] for s in spans)
+            if prefixes is not None:
+                hashes = [documents[s.doc_id].source_hash for s in spans]
+                chunks = tuple(
+                    search_text(prefixes[(h, s.start, s.end)], text)
+                    for h, s, text in zip(hashes, spans, chunks, strict=True)
+                )
             retrieval = setup.kind != "none"
             prompt = render_prompt(question.text, chunks, sampled.short_prompt, retrieval=retrieval)
             template = render_prompt(question.text, (), sampled.short_prompt, retrieval=retrieval)
