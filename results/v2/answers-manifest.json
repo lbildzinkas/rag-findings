@@ -1,0 +1,54 @@
+{
+  "config_hash": "7863aeefe67178ee6d38f8c3ddbcffc474219e9dc38e235e0463e602a3100b92",
+  "reader": {
+    "model": "mlx-community/Qwen3-8B-4bit@545dc4251c05440727734bcd94334791f6ab0192",
+    "model_id": "mlx-community/Qwen3-8B-4bit",
+    "model_loads": 1,
+    "revision": "545dc4251c05440727734bcd94334791f6ab0192",
+    "runtime": {
+      "mlx": "0.31.1",
+      "mlx-lm": "0.29.1"
+    },
+    "settings": {
+      "decoding": "greedy",
+      "max_new_tokens": 256,
+      "thinking": false
+    },
+    "settings_hash": "00d28b9deff9e6fee3f46da7efe72fe0ab989a195cbeef3f3471e4ad62b26d92",
+    "totals": {
+      "answers": 3000,
+      "cached": 262,
+      "calls": 2738,
+      "completion_tokens": 110063,
+      "distinct_prompts": 2833,
+      "latency_seconds": 6919.65,
+      "prompt_tokens": 2068141,
+      "truncated": 0
+    },
+    "wall_seconds": 6630.99
+  },
+  "setups": {
+    "no-retrieval": {
+      "completion_tokens": 28682,
+      "latency_seconds": 659.22,
+      "prompt_digest": "263fe1ef3a1c8ef8cee1724082c8674f5c1aef6ab2017828c629aaffd258a946",
+      "prompt_tokens": 31071,
+      "prompts": 1000
+    },
+    "oracle": {
+      "completion_tokens": 43792,
+      "latency_seconds": 3291.85,
+      "prompt_digest": "c004f99659c1e9364caf6d2a94ab8cde2fa5e157f7584ea46a9f72443fc958dd",
+      "prompt_tokens": 1104920,
+      "prompts": 1000
+    },
+    "section-aware": {
+      "completion_tokens": 45755,
+      "latency_seconds": 3516.78,
+      "prompt_digest": "07577d65c1d7a4ec94f4ab7ede8d6f042d36333f6d6921cfa518604e886c8ac3",
+      "prompt_tokens": 1095212,
+      "prompts": 1000
+    }
+  },
+  "template_hash": "9bf28410208fd69958bf3e5c67180b2127c7d95d7d13a3740126aa4e5508e5b5"
+}
