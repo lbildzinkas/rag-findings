@@ -24,6 +24,9 @@ Embed the whole document first, then cut the token embeddings into chunks, so ea
 **Contextual chunk**:
 A chunk indexed with a short context prefix written for it at index time; the prefix helps search and is not part of the text handed to the reader.
 
+**Section-aware-titles**:
+Section-aware's chunks indexed with the dataset's own document and section titles in front, for search only; the reader gets the plain chunk text.
+
 **Token budget**:
 The fixed amount of retrieved text, in tokens, handed to the reader for one question, filled with whole chunks in reranked order and never cut mid-chunk.
 _Avoid_: context window, context size, top-k
