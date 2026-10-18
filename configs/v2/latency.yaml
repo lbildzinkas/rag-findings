@@ -1,0 +1,29 @@
+kind: latency
+# the adoption profile's query path (issue 27): 50 seeded questions per
+# dataset, each system timed uncached on the runs' own indexes
+dataset:
+  name: pooled
+  sources:
+    - {name: qasper, splits: [dev, test]}
+    - {name: nq, splits: [dev]}
+questions_per_dataset: 50
+seed: 0
+embedder: nomic
+rrf_k: 60
+# one chunking reranks its fused top 30; search-all its cross-chunking
+# fused top 50; confidence routing each chunking's top 30 (210 pairs)
+rerank_depth: 30
+fused_rerank_depth: 50
+search_depth: 1000
+systems:
+  - {name: section-aware, run: v2-baseline, chunkings: [section-aware]}
+  - {name: late-128, run: v2-late, chunkings: [late-128]}
+  - {name: late-256, run: v2-late, chunkings: [late-256]}
+  - name: confidence routing
+    run: v2-baseline
+    route: confidence
+    chunkings: &seven [fixed-64, fixed-128, fixed-256, fixed-512, section-aware, small-to-big, fixed-1024]
+  - {name: search-all routing, run: v2-baseline, route: search-all, chunkings: *seven}
+  - {name: contextual-256, run: v2-contextual, chunkings: [contextual-256]}
+  - {name: section-aware-titles, run: v2-titles, chunkings: [section-aware-titles]}
+out: results/v2/latency-profile.json

@@ -1,0 +1,58 @@
+kind: verdict
+# R16: the verdict of ADR 0008 (issue 27), from the v2 runs, joined by
+# dataset and question id; pooled in this dataset order
+run_name: v2-verdict
+datasets: [qasper, nq]
+pipeline: hybrid-rerank
+embedder: nomic
+scope: collection
+# the bar's cell: the budget view (ADR 0006) at 1024 tokens
+budget: 1024
+budget_top_n: 20
+# the production view, reported beside it
+top_n: 8
+# reported with Holm-adjusted intervals, as in v1
+secondary_budgets: [512, 2048]
+# the pre-registered bar and tie-break (ADR 0008), fixed before any v2 run
+bar:
+  min_gain: 0.02
+  max_loss: 0.01
+  tie: 0.01
+  confidence: 0.95
+  resamples: 10000
+  seed: 0
+# the tie-break order, simplest first; each contender is paired with the
+# section-aware rows of the run behind its own table (R11 reads the
+# baseline runs)
+contenders:
+  - {name: late-128, table: r12, run: v2-late}
+  - {name: late-256, table: r12, run: v2-late}
+  - {name: confidence routing, system: confidence, table: r11, run: v2-routers, reference_run: v2-baseline, routed: true}
+  - {name: search-all routing, system: search-all, table: r11, run: v2-routers, reference_run: v2-baseline, routed: true}
+  - {name: contextual-256, table: r13, run: v2-contextual}
+  - {name: section-aware-titles, table: r17, run: v2-titles}
+# judged the same way, deciding nothing: contextual-256 with its prefix
+# counted against the budget
+side_variants:
+  - {name: contextual-256-prefixed, table: r13, run: v2-contextual}
+# R7's oracle router, the ceiling of the share captured
+oracle:
+  run: v2-baseline
+  chunkings: [fixed-64, fixed-128, fixed-256, fixed-512, section-aware, small-to-big, fixed-1024]
+# the reader stage's answer scores (R14)
+answers:
+  run: v2-answers
+  setups: [section-aware, oracle, no-retrieval]
+# the depth-50 side run: section-aware and the contender that passes,
+# reranked to depth 30 (its own run) and 50
+depth50:
+  runs: [v2-titles, v2-depth50]
+  contender: section-aware-titles
+latency: results/v2/latency-profile.json
+prefixes_manifest: results/prefixes/fixed-256-qwen3-8b.json
+notes:
+  - >-
+    The pre-registered order names late chunking, confidence routing, search-all
+    routing and contextual chunks. section-aware-titles joined the contenders
+    afterwards (ADR 0005 amendment, 2026-10-18) and is placed last, so it could
+    never win a tie against a pre-registered contender.

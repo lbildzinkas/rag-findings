@@ -1,0 +1,210 @@
+{
+  "config_hash": "eaece7587765084e81c5450701c5abd356f814257914faddb6749c40ea841449",
+  "questions": {
+    "nq": 50,
+    "qasper": 50
+  },
+  "seed": 0,
+  "warmup": 1,
+  "search_depth": 1000,
+  "hardware": {
+    "machine": "Mac16,6",
+    "chip": "Apple M4 Max",
+    "memory": "36 GB",
+    "os": "macOS 27.0.1",
+    "device": "mps"
+  },
+  "versions": {
+    "chonkie": "1.7.0",
+    "lancedb": "0.40.0",
+    "pyarrow": "26.0.0",
+    "python": "3.12.11",
+    "pyyaml": "6.0.3",
+    "rag-findings": "0.1.0",
+    "sentence-transformers": "5.7.0",
+    "tiktoken": "0.14.0",
+    "torch": "2.14.1",
+    "transformers": "4.57.6"
+  },
+  "models": {
+    "embedder": "nomic-ai/nomic-embed-text-v1.5@e9b6763023c676ca8431644204f50c2b100d9aab",
+    "reranker": "Alibaba-NLP/gte-reranker-modernbert-base@f7481e6055501a30fb19d090657df9ec1f79ab2c"
+  },
+  "systems": [
+    {
+      "name": "section-aware",
+      "searches": 2,
+      "pairs": 30.0,
+      "embed_ms": {
+        "mean": 12.0,
+        "p50": 9.3,
+        "p90": 12.6
+      },
+      "search_ms": {
+        "mean": 27.7,
+        "p50": 22.1,
+        "p90": 31.1
+      },
+      "rerank_ms": {
+        "mean": 804.1,
+        "p50": 743.1,
+        "p90": 1101.1
+      },
+      "total_ms": {
+        "mean": 843.8,
+        "p50": 787.2,
+        "p90": 1167.7
+      }
+    },
+    {
+      "name": "late-128",
+      "searches": 2,
+      "pairs": 30.0,
+      "embed_ms": {
+        "mean": 10.6,
+        "p50": 9.7,
+        "p90": 13.8
+      },
+      "search_ms": {
+        "mean": 35.7,
+        "p50": 29.0,
+        "p90": 41.7
+      },
+      "rerank_ms": {
+        "mean": 269.8,
+        "p50": 262.6,
+        "p90": 333.2
+      },
+      "total_ms": {
+        "mean": 316.1,
+        "p50": 294.3,
+        "p90": 373.5
+      }
+    },
+    {
+      "name": "late-256",
+      "searches": 2,
+      "pairs": 30.0,
+      "embed_ms": {
+        "mean": 9.8,
+        "p50": 9.0,
+        "p90": 11.9
+      },
+      "search_ms": {
+        "mean": 33.3,
+        "p50": 21.7,
+        "p90": 33.4
+      },
+      "rerank_ms": {
+        "mean": 494.4,
+        "p50": 471.2,
+        "p90": 594.7
+      },
+      "total_ms": {
+        "mean": 537.5,
+        "p50": 506.5,
+        "p90": 636.9
+      }
+    },
+    {
+      "name": "confidence routing",
+      "searches": 14,
+      "pairs": 204.1,
+      "embed_ms": {
+        "mean": 10.1,
+        "p50": 9.2,
+        "p90": 13.6
+      },
+      "search_ms": {
+        "mean": 227.0,
+        "p50": 195.0,
+        "p90": 327.3
+      },
+      "rerank_ms": {
+        "mean": 5761.6,
+        "p50": 5562.8,
+        "p90": 6949.4
+      },
+      "total_ms": {
+        "mean": 5998.7,
+        "p50": 5807.6,
+        "p90": 7351.4
+      }
+    },
+    {
+      "name": "search-all routing",
+      "searches": 14,
+      "pairs": 50.0,
+      "embed_ms": {
+        "mean": 9.1,
+        "p50": 9.0,
+        "p90": 10.4
+      },
+      "search_ms": {
+        "mean": 204.6,
+        "p50": 199.8,
+        "p90": 301.3
+      },
+      "rerank_ms": {
+        "mean": 1607.6,
+        "p50": 1504.5,
+        "p90": 2137.3
+      },
+      "total_ms": {
+        "mean": 1821.3,
+        "p50": 1721.3,
+        "p90": 2353.1
+      }
+    },
+    {
+      "name": "contextual-256",
+      "searches": 2,
+      "pairs": 30.0,
+      "embed_ms": {
+        "mean": 10.1,
+        "p50": 9.4,
+        "p90": 12.0
+      },
+      "search_ms": {
+        "mean": 27.0,
+        "p50": 22.4,
+        "p90": 30.7
+      },
+      "rerank_ms": {
+        "mean": 605.3,
+        "p50": 583.5,
+        "p90": 711.5
+      },
+      "total_ms": {
+        "mean": 642.4,
+        "p50": 623.7,
+        "p90": 756.5
+      }
+    },
+    {
+      "name": "section-aware-titles",
+      "searches": 2,
+      "pairs": 30.0,
+      "embed_ms": {
+        "mean": 10.3,
+        "p50": 9.4,
+        "p90": 12.4
+      },
+      "search_ms": {
+        "mean": 29.9,
+        "p50": 23.0,
+        "p90": 35.8
+      },
+      "rerank_ms": {
+        "mean": 819.3,
+        "p50": 748.7,
+        "p90": 1104.8
+      },
+      "total_ms": {
+        "mean": 859.5,
+        "p50": 789.8,
+        "p90": 1148.1
+      }
+    }
+  ]
+}
