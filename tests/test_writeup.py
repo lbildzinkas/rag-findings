@@ -1,7 +1,7 @@
 """The write-up regenerator: markdown tables read under their headings,
 generated blocks replaced in place, prose numbers traced to a generated
-block, deterministic SVG figures, and the committed write-up in sync with
-the committed result tables."""
+block, deterministic SVG figures, and the committed v1 and v2 write-ups in
+sync with the committed result tables."""
 
 from __future__ import annotations
 
@@ -21,8 +21,10 @@ from rag.writeup import (
     number,
     one,
     parse_tables,
+    section,
     unsourced_numbers,
 )
+from rag.writeup_v2 import NUMBER_V2
 
 REPO = Path(__file__).resolve().parents[1]
 
@@ -109,6 +111,22 @@ def test_prose_numbers_must_come_from_a_generated_block():
     assert unsourced_numbers(text + "\na gap of 0.0174 and a recall of 0.4257.") == ["0.0174", "0.4257"]
 
 
+def test_v2_prose_also_traces_shares_and_times_to_a_block():
+    text = _doc("t", body="| -18.2% | 843.8 / 787.2 | 3.52 s | 30.4 h | +0.0228 |\n")
+    prose = "\nshares -18.2%, 843.8 ms and 3.52 s per answer, 30.4 h, a gain of 0.0228, 8192 tokens, 1,000 questions"
+    assert unsourced_numbers(text + prose, NUMBER_V2) == []
+    assert unsourced_numbers(text + "\n18.2% captured, 787.3 ms, 1.5 h", NUMBER_V2) == ["1.5", "18.2", "787.3"]
+    assert unsourced_numbers(text + "\n18.2% captured, 787.3 ms") == []  # v1 checks four-decimal numbers only
+
+
+def test_section_reads_the_text_under_a_heading():
+    text = "# T\n\n## Verdict\n\n**Verdict: x.**\n\nWhy.\n\n### Next\n\nmore\n"
+    assert section(text, "## Verdict") == "**Verdict: x.**\n\nWhy."
+    assert section(text, "### Next") == "more"
+    with pytest.raises(WriteupError):
+        section(text, "## Missing")
+
+
 def test_figures_are_deterministic_well_formed_svg():
     panel = figures.Panel(
         "QASPER, production view",
@@ -143,11 +161,30 @@ def test_figures_are_deterministic_well_formed_svg():
     assert "bge-small" not in texts  # a single series needs no legend
 
 
+def test_scatter_panels_draw_each_point_with_its_whisker():
+    points = (
+        figures.Point("no retrieval", figures.INK_2, 0.0, 0.12, 0.11, 0.13),
+        figures.Point("section-aware", figures.ORANGE, 0.43, 0.18, 0.17, 0.2),
+    )
+    panels = [figures.ScatterPanel("QASPER", points), figures.ScatterPanel("pooled", points)]
+    args = ("t", "s", "d", "retrieval recall", "answer score", 1.0, 0.2, 0.3, 0.05, panels)
+    svg = figures.scatter_panels(*args, columns=2)
+    assert svg == figures.scatter_panels(*args, columns=2)
+    root = ET.fromstring(svg)
+    ns = "{http://www.w3.org/2000/svg}"
+    assert len(list(root.iter(f"{ns}circle"))) == 4 + 2  # four points plus two legend swatches
+    tips = [t.text for c in root.iter(f"{ns}circle") for t in c.iter(f"{ns}title")]
+    assert "pooled, section-aware: retrieval recall 0.4300, answer score 0.1800 [0.1700, 0.2000]" in tips
+    texts = [t.text for t in root.iter(f"{ns}text")]
+    assert texts.count("retrieval recall") == 2 and "0.30" in texts and "1.0" in texts
+
+
 def test_committed_writeup_and_figures_match_the_result_tables():
     assert check(REPO) == []
 
 
-def test_check_reports_a_stale_block_a_stale_figure_and_an_unsourced_number(tmp_path):
+def _copy_repo(tmp_path: Path) -> Path:
+    """The committed results/ and chunking/ trees, the only inputs `rag writeup` reads."""
     for relative in ("results", "chunking"):
         target = tmp_path / relative
         target.mkdir()
@@ -155,6 +192,11 @@ def test_check_reports_a_stale_block_a_stale_figure_and_an_unsourced_number(tmp_
             if path.is_file():
                 (target / path.relative_to(REPO / relative)).parent.mkdir(parents=True, exist_ok=True)
                 (target / path.relative_to(REPO / relative)).write_bytes(path.read_bytes())
+    return tmp_path
+
+
+def test_check_reports_a_stale_block_a_stale_figure_and_an_unsourced_number(tmp_path):
+    _copy_repo(tmp_path)
     writeup = tmp_path / "chunking" / "2026-10-14-v1-results.md"
     text = writeup.read_text(encoding="utf-8")
     text = text.replace("| fixed-64 | 0.2325 |", "| fixed-64 | 0.9999 |", 1)
@@ -170,4 +212,27 @@ def test_check_reports_a_stale_block_a_stale_figure_and_an_unsourced_number(tmp_
     assert main(["writeup", "--root", str(tmp_path)]) == 0
     assert check(tmp_path) == [
         "chunking/2026-10-14-v1-results.md: 0.1234 appears in the prose but in no generated block"
+    ]
+
+
+def test_check_covers_the_v2_write_up_and_its_figures(tmp_path):
+    _copy_repo(tmp_path)
+    writeup = tmp_path / "chunking" / "2026-10-18-v2-results.md"
+    text = writeup.read_text(encoding="utf-8")
+    assert "**Verdict: section-aware-titles replaces section-aware.**" in text
+    text = text.replace(
+        "**Verdict: section-aware-titles replaces section-aware.**", "**Verdict: section-aware stays.**", 1
+    )
+    writeup.write_text(text + "\nA made-up share of 12.3% and a query path of 99.9 ms.\n", encoding="utf-8")
+    (tmp_path / "chunking" / "figures" / "v2-answer-vs-recall.svg").unlink()
+
+    problems = check(tmp_path)
+    assert any("'v2-verdict'" in p for p in problems)
+    assert any("v2-answer-vs-recall.svg" in p for p in problems)
+    assert any("12.3 appears" in p for p in problems) and any("99.9 appears" in p for p in problems)
+
+    assert main(["writeup", "--root", str(tmp_path)]) == 0
+    assert check(tmp_path) == [
+        "chunking/2026-10-18-v2-results.md: 12.3 appears in the prose but in no generated block",
+        "chunking/2026-10-18-v2-results.md: 99.9 appears in the prose but in no generated block",
     ]

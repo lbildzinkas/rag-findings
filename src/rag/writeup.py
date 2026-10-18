@@ -1,15 +1,18 @@
-"""`rag writeup`: the v1 write-up's tables and figures, regenerated from
-the committed result tables under results/ (and the pilot tables in the
-research report), so the write-up never drifts from the data.
+"""`rag writeup`: the v1 and v2 write-ups' tables and figures, regenerated
+from the committed result tables under results/ (and the pilot tables in
+the research report), so a write-up never drifts from the data. This
+module holds the shared readers, v1's blocks and figures, and the
+regeneration; v2's blocks and figures are in `writeup_v2`.
 
-The write-up marks each generated block with a pair of HTML comments,
+A write-up marks each generated block with a pair of HTML comments,
 `<!-- generated: NAME -->` and `<!-- end generated: NAME -->`. `rag
 writeup` re-renders every marked block in place and rewrites the figures
 under chunking/figures/; `rag writeup --check` changes nothing and fails
 when a block or a figure differs from what the tables give, or when a
-four-decimal number in the prose appears in no generated block. Nothing
-is computed beyond reading a cell or subtracting two cells (the
-ablation contrasts): no retrieval or bootstrap runs here.
+four-decimal number in the prose (in v2 also a percentage, or a time in
+ms, s or h) appears in no generated block. Nothing is computed beyond
+reading a cell or subtracting two cells (the ablation contrasts): no
+retrieval or bootstrap runs here.
 """
 
 from __future__ import annotations
@@ -60,6 +63,7 @@ BLOCK = re.compile(
     re.DOTALL,
 )
 NUMBER = re.compile(r"(?<![\d.])[+-]?\d+\.\d{4}(?!\.?\d)")
+DECIMAL = re.compile(r"(?<![\d.])[+-]?\d+\.\d+(?!\.?\d)")
 
 
 class WriteupError(ValueError):
@@ -176,6 +180,16 @@ def number(cell: str) -> Decimal | None:
 def interval(cell: str) -> tuple[Decimal, Decimal]:
     low, high = cell.strip("[]").split(",")
     return Decimal(low), Decimal(high)
+
+
+def section(text: str, heading: str) -> str:
+    """The text under a heading line, up to the next heading of any level."""
+    lines = text.splitlines()
+    if heading not in lines:
+        raise WriteupError(f"no heading {heading!r}")
+    start = lines.index(heading) + 1
+    end = next((i for i in range(start, len(lines)) if lines[i].startswith("#")), len(lines))
+    return "\n".join(lines[start:end]).strip("\n")
 
 
 def md_table(header: Sequence[str], rows: Sequence[Sequence[str]]) -> str:
@@ -396,10 +410,7 @@ def block_headroom(src: Sources) -> str:
 def block_gate(src: Sources) -> str:
     """R7's gate rule and verdict, verbatim (one sentence per embedder), with
     a blank line before the verdict so it renders as its own paragraph."""
-    lines = src.text(R7).splitlines()
-    start = lines.index("## Router gate (pre-registered)") + 1
-    end = next((i for i in range(start, len(lines)) if lines[i].startswith("#")), len(lines))
-    return "\n".join(lines[start:end]).strip("\n").replace("\n**Verdict", "\n\n**Verdict")
+    return section(src.text(R7), "## Router gate (pre-registered)").replace("\n**Verdict", "\n\n**Verdict")
 
 
 def block_gate_pipelines(src: Sources) -> str:
@@ -632,6 +643,27 @@ FIGURES: dict[str, Callable[[Sources], str]] = {
 # regeneration and the drift check
 
 
+@dataclass(frozen=True)
+class Writeup:
+    """One write-up: its file, its generated blocks, its figures under
+    chunking/figures/, and the numbers in its prose that must come from a block."""
+
+    path: str
+    blocks: Mapping[str, Callable[[Sources], str]]
+    figures: Mapping[str, Callable[[Sources], str]]
+    numbers: re.Pattern[str] = NUMBER
+
+
+V1 = Writeup(WRITEUP, BLOCKS, FIGURES)
+
+
+def writeups() -> tuple[Writeup, ...]:
+    """Every write-up `rag writeup` regenerates and checks, oldest first."""
+    from .writeup_v2 import V2  # v2's blocks build on this module's readers
+
+    return (V1, V2)
+
+
 def apply_blocks(text: str, blocks: Mapping[str, str]) -> str:
     """Replace the body of every generated block; every block must appear exactly once."""
     seen: list[str] = []
@@ -651,45 +683,52 @@ def apply_blocks(text: str, blocks: Mapping[str, str]) -> str:
     return rendered
 
 
-def unsourced_numbers(text: str) -> list[str]:
-    """Four-decimal numbers in the prose that appear in no generated block
-    (a leading + is ignored; a minus sign must match)."""
-    sourced = {n.removeprefix("+") for m in BLOCK.finditer(text) for n in NUMBER.findall(m["body"])}
+def unsourced_numbers(text: str, pattern: re.Pattern[str] = NUMBER) -> list[str]:
+    """Numbers in the prose matching `pattern` (by default four-decimal ones)
+    that appear as a number in no generated block (a leading + is ignored;
+    a minus sign must match)."""
+    sourced = {n.removeprefix("+") for m in BLOCK.finditer(text) for n in DECIMAL.findall(m["body"])}
     prose = BLOCK.sub("", text)
-    return sorted({n for n in NUMBER.findall(prose) if n.removeprefix("+") not in sourced})
+    return sorted({n for n in pattern.findall(prose) if n.removeprefix("+") not in sourced})
 
 
-def render(root: Path) -> tuple[str, dict[str, str]]:
+def render(src: Sources, doc: Writeup) -> tuple[str, dict[str, str]]:
     """The write-up with every block re-rendered, and each figure's SVG."""
-    src = Sources(root)
-    text = src.text(WRITEUP)
-    rendered = apply_blocks(text, {name: block(src) for name, block in BLOCKS.items()})
-    return rendered, {name: figure(src) for name, figure in FIGURES.items()}
+    rendered = apply_blocks(src.text(doc.path), {name: block(src) for name, block in doc.blocks.items()})
+    return rendered, {name: figure(src) for name, figure in doc.figures.items()}
 
 
 def check(root: Path) -> list[str]:
-    """Every way the committed write-up and figures differ from the tables."""
-    rendered, svgs = render(root)
-    current = (root / WRITEUP).read_text(encoding="utf-8")
-    bodies = {m["name"]: m["body"] for m in BLOCK.finditer(current)}
-    problems = [
-        f"{WRITEUP}: block {m['name']!r} differs from the tables"
-        for m in BLOCK.finditer(rendered)
-        if bodies.get(m["name"]) != m["body"]
-    ]
-    for name, svg in svgs.items():
-        path = root / FIGURE_DIR / name
-        if not path.exists() or path.read_text(encoding="utf-8") != svg:
-            problems.append(f"{FIGURE_DIR}/{name}: differs from the tables")
-    problems += [f"{WRITEUP}: {n} appears in the prose but in no generated block" for n in unsourced_numbers(rendered)]
+    """Every way the committed write-ups and figures differ from the tables."""
+    src = Sources(root)
+    problems = []
+    for doc in writeups():
+        rendered, svgs = render(src, doc)
+        bodies = {m["name"]: m["body"] for m in BLOCK.finditer(src.text(doc.path))}
+        problems += [
+            f"{doc.path}: block {m['name']!r} differs from the tables"
+            for m in BLOCK.finditer(rendered)
+            if bodies.get(m["name"]) != m["body"]
+        ]
+        for name, svg in svgs.items():
+            path = root / FIGURE_DIR / name
+            if not path.exists() or path.read_text(encoding="utf-8") != svg:
+                problems.append(f"{FIGURE_DIR}/{name}: differs from the tables")
+        problems += [
+            f"{doc.path}: {n} appears in the prose but in no generated block"
+            for n in unsourced_numbers(rendered, doc.numbers)
+        ]
     return problems
 
 
 def write(root: Path) -> list[str]:
-    """Re-render the write-up's blocks and figures in place; returns the files that changed."""
-    rendered, svgs = render(root)
+    """Re-render every write-up's blocks and figures in place; returns the files that changed."""
+    src = Sources(root)
+    outputs: dict[str, str] = {}
+    for doc in writeups():
+        rendered, svgs = render(src, doc)
+        outputs |= {doc.path: rendered} | {f"{FIGURE_DIR}/{name}": svg for name, svg in svgs.items()}
     changed = []
-    outputs = {WRITEUP: rendered} | {f"{FIGURE_DIR}/{name}": svg for name, svg in svgs.items()}
     for relative, content in outputs.items():
         path = root / relative
         if path.exists() and path.read_text(encoding="utf-8") == content:

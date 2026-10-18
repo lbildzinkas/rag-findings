@@ -1,9 +1,10 @@
 """Static SVG figures for the write-up, written by hand so they need no
 plotting dependency and regenerate byte-identically on any machine.
 
-Two forms: small multiples of lines (one line per series over ordered x
-categories, gaps where a value is missing) and dots with CI whiskers
-(series dodged inside each x category, with optional reference lines).
+Three forms: small multiples of lines (one line per series over ordered x
+categories, gaps where a value is missing), dots with CI whiskers
+(series dodged inside each x category, with optional reference lines),
+and small multiples of points with CI whiskers over a continuous x.
 Both paint an opaque light surface so they read on light and dark pages
 alike, carry a legend for two or more series, and give every point a
 <title> tooltip with its value. Coordinates are printed to one decimal.
@@ -54,6 +55,22 @@ class Whiskers:
     name: str
     color: str
     points: tuple[tuple[float, float, float] | None, ...]  # (estimate, low, high) per x category
+
+
+@dataclass(frozen=True)
+class Point:
+    name: str
+    color: str
+    x: float
+    y: float
+    low: float  # the CI on y
+    high: float
+
+
+@dataclass(frozen=True)
+class ScatterPanel:
+    title: str
+    points: tuple[Point, ...]
 
 
 def _f(x: float) -> str:
@@ -230,3 +247,45 @@ def dot_whiskers(
                 _dot(x, sy(estimate), s.color, f"{s.name}, {x_labels[k]}: {estimate:+.4f} [{lo:+.4f}, {hi:+.4f}]")
             )
     return _svg(title, description, y1 + 52, body)
+
+
+def scatter_panels(
+    title: str,
+    subtitle: str,
+    description: str,
+    x_title: str,
+    y_title: str,
+    x_max: float,
+    x_step: float,
+    y_max: float,
+    y_step: float,
+    panels: Sequence[ScatterPanel],
+    columns: int,
+) -> str:
+    """Small multiples, `columns` panels per row, sharing x from 0 to `x_max`
+    and y from 0 to `y_max`: each point a dot with its CI on y as a vertical
+    whisker; the legend comes from the first panel's points."""
+    body, top = _header(title, subtitle, [(p.name, p.color) for p in panels[0].points])
+    panel_w = (WIDTH - 2 * PAD) / columns
+    plot_h, panel_h = 170.0, 250.0
+    for i, panel in enumerate(panels):
+        px = PAD + (i % columns) * panel_w
+        py = top + (i // columns) * panel_h
+        x0, x1 = px + 44, px + panel_w - 16
+        y0, y1 = py + 30, py + 30 + plot_h
+        body.append(_text(x0, py + 14, panel.title, size=12, fill=INK, bold=True))
+        sx = _linear(0, x_max, x0, x1)
+        sy = _linear(0, y_max, y1, y0)
+
+        for tick in _ticks(0, y_max, y_step):
+            body.append(_line(x0, sy(tick), x1, sy(tick), AXIS if tick == 0 else GRID))
+            body.append(_text(x0 - 6, sy(tick) + 4, f"{tick:.2f}", anchor="end"))
+        for tick in _ticks(0, x_max, x_step):
+            body.append(_text(sx(tick), y1 + 16, f"{tick:.1f}", anchor="middle"))
+        body.append(_text((x0 + x1) / 2, y1 + 34, x_title, anchor="middle"))
+        for p in panel.points:
+            body.append(_line(sx(p.x), sy(p.low), sx(p.x), sy(p.high), p.color, 2))
+            tip = f"{panel.title}, {p.name}: {x_title} {p.x:.4f}, {y_title} {p.y:.4f} [{p.low:.4f}, {p.high:.4f}]"
+            body.append(_dot(sx(p.x), sy(p.y), p.color, tip))
+    rows = math.ceil(len(panels) / columns)
+    return _svg(title, description, top + rows * panel_h, body)

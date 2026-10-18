@@ -223,12 +223,12 @@ def main(argv: list[str] | None = None) -> int:
     )
 
     writeup_parser = sub.add_parser(
-        "writeup", help="regenerate the v1 write-up's tables and figures from the committed result tables"
+        "writeup", help="regenerate the v1 and v2 write-ups' tables and figures from the committed result tables"
     )
     writeup_parser.add_argument(
         "--check",
         action="store_true",
-        help="change nothing; fail when the write-up or a figure differs from the result tables",
+        help="change nothing; fail when a write-up or a figure differs from the result tables",
     )
     writeup_parser.add_argument(
         "--root",
