@@ -228,7 +228,7 @@ def main(argv: list[str] | None = None) -> int:
     writeup_parser.add_argument(
         "--check",
         action="store_true",
-        help="change nothing; fail when the write-up or a figure differs from the result tables",
+        help="change nothing; fail when a write-up or a figure differs from the result tables",
     )
     writeup_parser.add_argument(
         "--root",
