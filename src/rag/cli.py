@@ -1,6 +1,7 @@
 """Command line entry point: `rag setup`, `rag sample`, `rag reader-sample`, `rag run <config>`,
 `rag headroom <config>`, `rag contenders <config>`, `rag answers <config>`, `rag grade <config>`,
-`rag routers <config>`, `rag prefixes <config>` and `rag writeup`."""
+`rag routers <config>`, `rag prefixes <config>`, `rag latency <config>`, `rag verdict <config>`
+and `rag writeup`."""
 
 from __future__ import annotations
 
@@ -178,6 +179,30 @@ def main(argv: list[str] | None = None) -> int:
         help="project root holding runs/ and results/ (default: current directory)",
     )
 
+    latency_parser = sub.add_parser(
+        "latency",
+        help="time each v2 system's query path uncached (query embedding, searches, reranker) on a seeded "
+        "question sample, recording the hardware and versions",
+    )
+    latency_parser.add_argument("config", type=Path, help="path to the latency config YAML")
+    latency_parser.add_argument(
+        "--root",
+        default=None,
+        help="project root holding data/, runs/ and results/ (default: current directory)",
+    )
+
+    verdict_parser = sub.add_parser(
+        "verdict",
+        help="the v2 verdict of ADR 0008: every contender against the pre-registered bar and the tie-break, "
+        "with the secondary results and the adoption profile (R16)",
+    )
+    verdict_parser.add_argument("config", type=Path, help="path to the verdict config YAML")
+    verdict_parser.add_argument(
+        "--root",
+        default=None,
+        help="project root holding runs/ and results/ (default: current directory)",
+    )
+
     prefixes_parser = sub.add_parser(
         "prefixes",
         help="write a context prefix for every chunk of the configured chunking with a local model "
@@ -340,6 +365,18 @@ def main(argv: list[str] | None = None) -> int:
         from .routers import load_routers_table_config, run_routers_table
 
         run_routers_table(load_routers_table_config(args.config), paths)
+        return 0
+
+    if args.command == "latency":
+        from .latency import load_latency_config, run_latency
+
+        run_latency(load_latency_config(args.config), paths)
+        return 0
+
+    if args.command == "verdict":
+        from .verdict import load_verdict_config, run_verdict
+
+        run_verdict(load_verdict_config(args.config), paths)
         return 0
 
     if args.command == "prefixes":
