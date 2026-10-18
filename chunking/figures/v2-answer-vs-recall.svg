@@ -1,0 +1,100 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="760" height="338.0" viewBox="0 0 760 338.0" role="img" font-family="system-ui, -apple-system, 'Segoe UI', sans-serif">
+<title>Answer score against retrieval recall, per read setup</title>
+<desc>The three setups the reader read: no retrieval (recall 0), section-aware and the oracle router. Recall is over every question (results/routing/r7-v2-budget-view.md), the answer score over the reader sample (results/v2/r14-answers.md).</desc>
+<rect width="760" height="338.0" fill="#fcfcfb"/>
+<text x="16.0" y="28.0" font-size="16" text-anchor="start" fill="#0b0b0b" font-weight="600">Answer score against retrieval recall, per read setup</text>
+<text x="16.0" y="48.0" font-size="12" text-anchor="start" fill="#52514e">Mean answer score (y, 95% CI) on the 1,000-question reader sample against retrieval recall (x) at 1024 tokens, budget view</text>
+<line x1="16.0" y1="68.0" x2="32.0" y2="68.0" stroke="#52514e" stroke-width="2"/>
+<circle cx="24.0" cy="68.0" r="4" fill="#52514e" stroke="#fcfcfb" stroke-width="2"/>
+<text x="38.0" y="72.0" font-size="12" text-anchor="start" fill="#0b0b0b">no retrieval</text>
+<line x1="142.0" y1="68.0" x2="158.0" y2="68.0" stroke="#eb6834" stroke-width="2"/>
+<circle cx="150.0" cy="68.0" r="4" fill="#eb6834" stroke="#fcfcfb" stroke-width="2"/>
+<text x="164.0" y="72.0" font-size="12" text-anchor="start" fill="#0b0b0b">section-aware</text>
+<line x1="275.0" y1="68.0" x2="291.0" y2="68.0" stroke="#2a78d6" stroke-width="2"/>
+<circle cx="283.0" cy="68.0" r="4" fill="#2a78d6" stroke="#fcfcfb" stroke-width="2"/>
+<text x="297.0" y="72.0" font-size="12" text-anchor="start" fill="#0b0b0b">oracle router</text>
+<text x="60.0" y="102.0" font-size="12" text-anchor="start" fill="#0b0b0b" font-weight="600">QASPER</text>
+<line x1="60.0" y1="288.0" x2="242.7" y2="288.0" stroke="#c3c2b7" stroke-width="1"/>
+<text x="54.0" y="292.0" font-size="11" text-anchor="end" fill="#52514e">0.00</text>
+<line x1="60.0" y1="259.7" x2="242.7" y2="259.7" stroke="#e1e0d9" stroke-width="1"/>
+<text x="54.0" y="263.7" font-size="11" text-anchor="end" fill="#52514e">0.05</text>
+<line x1="60.0" y1="231.3" x2="242.7" y2="231.3" stroke="#e1e0d9" stroke-width="1"/>
+<text x="54.0" y="235.3" font-size="11" text-anchor="end" fill="#52514e">0.10</text>
+<line x1="60.0" y1="203.0" x2="242.7" y2="203.0" stroke="#e1e0d9" stroke-width="1"/>
+<text x="54.0" y="207.0" font-size="11" text-anchor="end" fill="#52514e">0.15</text>
+<line x1="60.0" y1="174.7" x2="242.7" y2="174.7" stroke="#e1e0d9" stroke-width="1"/>
+<text x="54.0" y="178.7" font-size="11" text-anchor="end" fill="#52514e">0.20</text>
+<line x1="60.0" y1="146.3" x2="242.7" y2="146.3" stroke="#e1e0d9" stroke-width="1"/>
+<text x="54.0" y="150.3" font-size="11" text-anchor="end" fill="#52514e">0.25</text>
+<line x1="60.0" y1="118.0" x2="242.7" y2="118.0" stroke="#e1e0d9" stroke-width="1"/>
+<text x="54.0" y="122.0" font-size="11" text-anchor="end" fill="#52514e">0.30</text>
+<text x="60.0" y="304.0" font-size="11" text-anchor="middle" fill="#52514e">0.0</text>
+<text x="96.5" y="304.0" font-size="11" text-anchor="middle" fill="#52514e">0.2</text>
+<text x="133.1" y="304.0" font-size="11" text-anchor="middle" fill="#52514e">0.4</text>
+<text x="169.6" y="304.0" font-size="11" text-anchor="middle" fill="#52514e">0.6</text>
+<text x="206.1" y="304.0" font-size="11" text-anchor="middle" fill="#52514e">0.8</text>
+<text x="242.7" y="304.0" font-size="11" text-anchor="middle" fill="#52514e">1.0</text>
+<text x="151.3" y="322.0" font-size="11" text-anchor="middle" fill="#52514e">retrieval recall</text>
+<line x1="60.0" y1="228.8" x2="60.0" y2="218.1" stroke="#52514e" stroke-width="2"/>
+<circle cx="60.0" cy="223.4" r="4" fill="#52514e" stroke="#fcfcfb" stroke-width="2"><title>QASPER, no retrieval: retrieval recall 0.0000, answer score 0.1140 [0.1045, 0.1233]</title></circle>
+<line x1="105.3" y1="216.1" x2="105.3" y2="201.3" stroke="#eb6834" stroke-width="2"/>
+<circle cx="105.3" cy="208.8" r="4" fill="#eb6834" stroke="#fcfcfb" stroke-width="2"><title>QASPER, section-aware: retrieval recall 0.2480, answer score 0.1398 [0.1269, 0.1530]</title></circle>
+<line x1="130.3" y1="205.2" x2="130.3" y2="188.3" stroke="#2a78d6" stroke-width="2"/>
+<circle cx="130.3" cy="197.0" r="4" fill="#2a78d6" stroke="#fcfcfb" stroke-width="2"><title>QASPER, oracle router: retrieval recall 0.3847, answer score 0.1606 [0.1461, 0.1760]</title></circle>
+<text x="302.7" y="102.0" font-size="12" text-anchor="start" fill="#0b0b0b" font-weight="600">NQ</text>
+<line x1="302.7" y1="288.0" x2="485.3" y2="288.0" stroke="#c3c2b7" stroke-width="1"/>
+<text x="296.7" y="292.0" font-size="11" text-anchor="end" fill="#52514e">0.00</text>
+<line x1="302.7" y1="259.7" x2="485.3" y2="259.7" stroke="#e1e0d9" stroke-width="1"/>
+<text x="296.7" y="263.7" font-size="11" text-anchor="end" fill="#52514e">0.05</text>
+<line x1="302.7" y1="231.3" x2="485.3" y2="231.3" stroke="#e1e0d9" stroke-width="1"/>
+<text x="296.7" y="235.3" font-size="11" text-anchor="end" fill="#52514e">0.10</text>
+<line x1="302.7" y1="203.0" x2="485.3" y2="203.0" stroke="#e1e0d9" stroke-width="1"/>
+<text x="296.7" y="207.0" font-size="11" text-anchor="end" fill="#52514e">0.15</text>
+<line x1="302.7" y1="174.7" x2="485.3" y2="174.7" stroke="#e1e0d9" stroke-width="1"/>
+<text x="296.7" y="178.7" font-size="11" text-anchor="end" fill="#52514e">0.20</text>
+<line x1="302.7" y1="146.3" x2="485.3" y2="146.3" stroke="#e1e0d9" stroke-width="1"/>
+<text x="296.7" y="150.3" font-size="11" text-anchor="end" fill="#52514e">0.25</text>
+<line x1="302.7" y1="118.0" x2="485.3" y2="118.0" stroke="#e1e0d9" stroke-width="1"/>
+<text x="296.7" y="122.0" font-size="11" text-anchor="end" fill="#52514e">0.30</text>
+<text x="302.7" y="304.0" font-size="11" text-anchor="middle" fill="#52514e">0.0</text>
+<text x="339.2" y="304.0" font-size="11" text-anchor="middle" fill="#52514e">0.2</text>
+<text x="375.7" y="304.0" font-size="11" text-anchor="middle" fill="#52514e">0.4</text>
+<text x="412.3" y="304.0" font-size="11" text-anchor="middle" fill="#52514e">0.6</text>
+<text x="448.8" y="304.0" font-size="11" text-anchor="middle" fill="#52514e">0.8</text>
+<text x="485.3" y="304.0" font-size="11" text-anchor="middle" fill="#52514e">1.0</text>
+<text x="394.0" y="322.0" font-size="11" text-anchor="middle" fill="#52514e">retrieval recall</text>
+<line x1="302.7" y1="226.1" x2="302.7" y2="207.8" stroke="#52514e" stroke-width="2"/>
+<circle cx="302.7" cy="217.3" r="4" fill="#52514e" stroke="#fcfcfb" stroke-width="2"><title>NQ, no retrieval: retrieval recall 0.0000, answer score 0.1247 [0.1093, 0.1416]</title></circle>
+<line x1="452.4" y1="174.7" x2="452.4" y2="146.8" stroke="#eb6834" stroke-width="2"/>
+<circle cx="452.4" cy="160.7" r="4" fill="#eb6834" stroke="#fcfcfb" stroke-width="2"><title>NQ, section-aware: retrieval recall 0.8197, answer score 0.2246 [0.1999, 0.2492]</title></circle>
+<line x1="477.7" y1="177.9" x2="477.7" y2="151.8" stroke="#2a78d6" stroke-width="2"/>
+<circle cx="477.7" cy="164.9" r="4" fill="#2a78d6" stroke="#fcfcfb" stroke-width="2"><title>NQ, oracle router: retrieval recall 0.9583, answer score 0.2172 [0.1943, 0.2404]</title></circle>
+<text x="545.3" y="102.0" font-size="12" text-anchor="start" fill="#0b0b0b" font-weight="600">pooled</text>
+<line x1="545.3" y1="288.0" x2="728.0" y2="288.0" stroke="#c3c2b7" stroke-width="1"/>
+<text x="539.3" y="292.0" font-size="11" text-anchor="end" fill="#52514e">0.00</text>
+<line x1="545.3" y1="259.7" x2="728.0" y2="259.7" stroke="#e1e0d9" stroke-width="1"/>
+<text x="539.3" y="263.7" font-size="11" text-anchor="end" fill="#52514e">0.05</text>
+<line x1="545.3" y1="231.3" x2="728.0" y2="231.3" stroke="#e1e0d9" stroke-width="1"/>
+<text x="539.3" y="235.3" font-size="11" text-anchor="end" fill="#52514e">0.10</text>
+<line x1="545.3" y1="203.0" x2="728.0" y2="203.0" stroke="#e1e0d9" stroke-width="1"/>
+<text x="539.3" y="207.0" font-size="11" text-anchor="end" fill="#52514e">0.15</text>
+<line x1="545.3" y1="174.7" x2="728.0" y2="174.7" stroke="#e1e0d9" stroke-width="1"/>
+<text x="539.3" y="178.7" font-size="11" text-anchor="end" fill="#52514e">0.20</text>
+<line x1="545.3" y1="146.3" x2="728.0" y2="146.3" stroke="#e1e0d9" stroke-width="1"/>
+<text x="539.3" y="150.3" font-size="11" text-anchor="end" fill="#52514e">0.25</text>
+<line x1="545.3" y1="118.0" x2="728.0" y2="118.0" stroke="#e1e0d9" stroke-width="1"/>
+<text x="539.3" y="122.0" font-size="11" text-anchor="end" fill="#52514e">0.30</text>
+<text x="545.3" y="304.0" font-size="11" text-anchor="middle" fill="#52514e">0.0</text>
+<text x="581.9" y="304.0" font-size="11" text-anchor="middle" fill="#52514e">0.2</text>
+<text x="618.4" y="304.0" font-size="11" text-anchor="middle" fill="#52514e">0.4</text>
+<text x="654.9" y="304.0" font-size="11" text-anchor="middle" fill="#52514e">0.6</text>
+<text x="691.5" y="304.0" font-size="11" text-anchor="middle" fill="#52514e">0.8</text>
+<text x="728.0" y="304.0" font-size="11" text-anchor="middle" fill="#52514e">1.0</text>
+<text x="636.7" y="322.0" font-size="11" text-anchor="middle" fill="#52514e">retrieval recall</text>
+<line x1="545.3" y1="225.6" x2="545.3" y2="214.9" stroke="#52514e" stroke-width="2"/>
+<circle cx="545.3" cy="220.4" r="4" fill="#52514e" stroke="#fcfcfb" stroke-width="2"><title>pooled, no retrieval: retrieval recall 0.0000, answer score 0.1193 [0.1101, 0.1290]</title></circle>
+<line x1="623.3" y1="192.7" x2="623.3" y2="176.8" stroke="#eb6834" stroke-width="2"/>
+<circle cx="623.3" cy="184.8" r="4" fill="#eb6834" stroke="#fcfcfb" stroke-width="2"><title>pooled, section-aware: retrieval recall 0.4269, answer score 0.1822 [0.1682, 0.1962]</title></circle>
+<line x1="648.4" y1="188.8" x2="648.4" y2="173.1" stroke="#2a78d6" stroke-width="2"/>
+<circle cx="648.4" cy="181.0" r="4" fill="#2a78d6" stroke="#fcfcfb" stroke-width="2"><title>pooled, oracle router: retrieval recall 0.5641, answer score 0.1889 [0.1750, 0.2028]</title></circle>
+</svg>

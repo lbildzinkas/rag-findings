@@ -223,7 +223,7 @@ def main(argv: list[str] | None = None) -> int:
     )
 
     writeup_parser = sub.add_parser(
-        "writeup", help="regenerate the v1 write-up's tables and figures from the committed result tables"
+        "writeup", help="regenerate the v1 and v2 write-ups' tables and figures from the committed result tables"
     )
     writeup_parser.add_argument(
         "--check",

@@ -6,11 +6,15 @@
 
 Full write-up, with every table and the method: [RAG chunking v1 results](chunking/2026-10-14-v1-results.md) (2026-10-14).
 
-## v2 so far: routing or better indexing?
+**v2 followed up: route each question between chunkings, or index one chunking better? Index one chunking better.** Neither label-free router beats section-aware alone; section-aware chunks indexed with their document and section titles do, by +0.0228 retrieval recall [+0.0128, +0.0331], clearing the bar fixed before any v2 run. Full write-up: [RAG chunking v2 results](chunking/2026-10-18-v2-results.md) (2026-10-18).
+
+## v2: routing or better indexing?
 
 **The question:** does the headroom v1 found come from routing each question between chunkings, or from indexing one chunking better?
 
-**The answer so far (provisional): the cheapest indexing change clears the bar.** Indexing section-aware chunks with the dataset's own document and section titles - free, no language model - is the one contender that beats section-aware where v2 judges: +0.0228 pooled retrieval recall with a 95% CI excluding 0 ([R17](results/qasper/r17-v2-titles.md)). The label-free routers, late chunking and contextual chunks all score below section-aware, so none of them reaches the bar fixed before any v2 run ([ADR 0008](docs/adr/0008-pre-register-v2s-success-bar-and-tie-break.md)): at least +0.02 retrieval recall over section-aware. The retrieval results below are final. The answer-accuracy stage ([#26](https://github.com/lbildzinkas/rag-findings/issues/26)) reads section-aware, the oracle router and no retrieval with a local reader ([R14](results/v2/r14-answers.md), checked by a model grader in [R15](results/v2/r15-grader.md)); the formal verdict against the bar with its confidence intervals ([R16](results/v2/r16-verdict.md), [#27](https://github.com/lbildzinkas/rag-findings/issues/27)) confirms section-aware-titles as the only contender that passes; the v2 write-up ([#28](https://github.com/lbildzinkas/rag-findings/issues/28)) has not run yet.
+**The answer: index one chunking better.** The pre-registered verdict ([ADR 0008](docs/adr/0008-pre-register-v2s-success-bar-and-tie-break.md), [R16](results/v2/r16-verdict.md)) is that **section-aware-titles replaces section-aware**: indexing section-aware chunks with the dataset's own document and section titles - free, no language model - gains +0.0228 pooled retrieval recall [+0.0128, +0.0331] where v2 judges, on both datasets (QASPER +0.0168 [+0.0055, +0.0281], Natural Questions +0.0361 [+0.0153, +0.0573]). It is the only contender that clears the bar fixed before any v2 run: at least +0.02 pooled recall over section-aware with a 95% CI excluding 0, and neither dataset alone more than 0.01 below it. The label-free routers, late chunking and contextual chunks all score below section-aware, each with a CI excluding 0, so none of them captures any of the oracle router's +0.1373 headroom; section-aware-titles captures 16.6% of it.
+
+Full write-up, with every table, both figures, the answers, the grader check, the costs and the limitations: [RAG chunking v2 results](chunking/2026-10-18-v2-results.md) (2026-10-18).
 
 The contenders use no question labels:
 
@@ -33,7 +37,7 @@ Budget view (as many reranked whole chunks as fit the budget, at most 20 per que
 | Late chunking on fixed-128 (late-128) | 0.3582 | -0.0686 | [R12](results/qasper/r12-v2-late.md) |
 | Oracle router (a ceiling) [95% CI] | 0.5641 | +0.1373 [+0.1263, +0.1485] | [R7](results/routing/r7-v2-budget-view.md) |
 
-*Differences are taken between unrounded means, as R7's headroom is, so a few differ in the last digit from the rounded recalls; every contender's CI is in the formal verdict, [R16](results/v2/r16-verdict.md); section-aware-titles' pre-registered bar verdict is also rendered in R17. R12, R13 and R17 carry the pooled columns in both their QASPER and Natural Questions tables.*
+*Differences are taken between unrounded means, as R7's headroom is, so a few differ in the last digit from the rounded recalls; every contender's CI, pooled and per dataset, is in the formal verdict, [R16](results/v2/r16-verdict.md). R12, R13 and R17 carry the pooled columns in both their QASPER and Natural Questions tables.*
 
 What the results say:
 
@@ -43,11 +47,18 @@ What the results say:
 - **The label-free routers lose recall rather than capture the oracle's headroom.** Search-all routing trails section-aware by 0.0250 and confidence routing by 0.0422, while the oracle router sits +0.1373 above it. Confidence routing picks fixed-64 most often (0.2856 of questions) and section-aware for 0.2468.
 - **Late chunking barely changes small chunks.** Against the same fixed chunks embedded on their own, late-128 moves pooled recall by +0.0064 and late-256 by +0.0002: slightly better on Natural Questions (+0.0290 and +0.0082), slightly worse on QASPER (-0.0039 and -0.0035).
 
+**Answers.** A local Qwen3-8B read a 1,000-question sample with section-aware's chunks, the oracle router's and none ([R14](results/v2/r14-answers.md)). Retrieval lifts the pooled answer score from 0.1193 with no retrieval to 0.1822 with section-aware; the oracle router's +0.1373 more recall adds only +0.0067 [-0.0037, +0.0168]. No contender's answers were measured, the winner's included: the answer guard was dropped and the reader stage fixed to these three setups before section-aware-titles ran (the 2026-10-17 amendments to ADR 0008 and ADR 0009).
+
+**The grader check.** A model grader (Claude Sonnet) graded 300 of those answers ([R15](results/v2/r15-grader.md)). QASPER's answer F1 agrees with it on 0.8467 of answers; Natural Questions' short-answer exact match agrees on only 0.3733 of precise answers, against 0.7733 for contains-a-reference. The pooled ranking of the three setups holds under the grader.
+
+**Cost.** Section-aware-titles needs no model at index time and its uncached query path takes about as long as section-aware's (859.5 ms against 843.8 ms on average, mostly the reranker); search-all routing takes 1821.3 ms and confidence routing 5998.7 ms ([R16](results/v2/r16-verdict.md)).
+
 **How section-aware chunking works.** It cuts each document at its own sections: a QASPER paper's named sections (the abstract is one), a Natural Questions page at its H1-H6 headings. Each section becomes one chunk of up to 512 tokens; a longer section is split at paragraph boundaries into runs of whole paragraphs, and a single paragraph longer than 512 tokens is cut into 512-token windows. Chunks therefore follow the document's units of meaning instead of a fixed window. QASPER chunks do not include the section title text; on Natural Questions pages the heading text is part of the page text and opens its section's first chunk. The code is `section_aware` in [`src/rag/chunking.py`](src/rag/chunking.py); the vocabulary is in [`CONTEXT.md`](CONTEXT.md).
 
-Limitations of v2 so far:
+Limitations of v2 (the [write-up's limitations](chunking/2026-10-18-v2-results.md#7-limitations) have the details):
 
-- Every v2 number above is retrieval recall. Answers are measured for three setups only (section-aware, the oracle router and no retrieval) with a local Qwen3-8B as the reader on a 1,000-question sample ([R14](results/v2/r14-answers.md); [ADR 0009](docs/adr/0009-measure-answer-accuracy-with-glm-5-3-flash-as-the-reader.md) and its 2026-10-17 amendment), not with GLM 5.3 Flash as first planned.
+- The verdict is retrieval recall. Answers are measured for three setups only (section-aware, the oracle router and no retrieval) with one small local reader and one fixed prompt, a local Qwen3-8B on a 1,000-question sample ([R14](results/v2/r14-answers.md); [ADR 0009](docs/adr/0009-measure-answer-accuracy-with-glm-5-3-flash-as-the-reader.md) and its 2026-10-17 amendment), not with GLM 5.3 Flash as first planned.
+- Section-aware-titles joined the contenders after the pre-registration ([ADR 0005](docs/adr/0005-compare-routing-against-indexing-with-label-free-contenders-only.md), 2026-10-18 amendment), judged against the same bar, fixed before it ran.
 - Some Natural Questions pages hold byte-identical chunks at the same character span, which the reranker scores exactly equally, so tie order decides which page's copy is packed. Against v1 this moved three v2-baseline cells by one question each, within ±0.001 ([note](results/nq/v2-baseline-regression.md)).
 - Late chunking pools each chunk from the token embeddings that start inside it, leaving the document prefix and special tokens out, so a window holding a single chunk reproduces that chunk's own vector to a cosine of 0.999798 at worst for late-128 (just under the 0.9999 check) and 0.999946 for late-256 ([check](results/late-single-chunk-cosine.md)). A document longer than 8192 tokens is read in several windows, so each chunk sees only its own window.
 - The reranker orders only the top 30 of each chunking's list (search-all routing: the fused top 50). At 1024 tokens section-aware packs chunks from past rank 30, in fused order, for 0.5831 of QASPER questions and 0.8540 of Natural Questions ones (R5, [QASPER](results/qasper/r5-v2-baseline.md), [Natural Questions](results/nq/r5-v2-baseline.md)), so a deeper rerank could shift the margins either way; reranked to depth 50, section-aware gains +0.0051 and section-aware-titles' margin narrows from +0.0228 to +0.0209 [+0.0108, +0.0311], still clearing the bar's retrieval checks ([R16](results/v2/r16-verdict.md)).
@@ -113,26 +124,26 @@ At 1024 tokens, production view, comparing each pipeline's best single chunking 
 - **Hybrid fusion helps QASPER and hurts Natural Questions before the reranker:** fusing BM25 with vector search beats vector search alone on QASPER (+0.0366, bge-small) but costs -0.0532 (bge-small) and -0.0858 (nomic) on Natural Questions, where BM25 is much weaker.
 - **The winner barely moves:** section-aware or small-to-big is the best chunking for every pipeline, embedder and dataset.
 
-## What to use today, and what v2 does
+## What to use today
 
-**Use today:** section-aware chunks with a token budget around 1024 tokens, hybrid search plus the reranker over the top 30. Either embedder works; their recalls are within a few thousandths.
+**Use today:** section-aware chunks indexed with their document and section titles - a header such as `Paper: <paper title>. Section: <section name>.` in front of each chunk for BM25, the vectors and the reranker, and the plain chunk text handed to the reader - with a token budget around 1024 tokens, hybrid search plus the reranker over the top 30, and nomic-embed-text-v1.5. Do not build a label-free router over several chunkings: neither router tried in v2 beats one well-indexed chunking, and both cost more at query time ([v2](#v2-routing-or-better-indexing)).
 
-**v2:** asks whether the headroom v1 found comes from routing between chunkings or from indexing one chunking better, measured end to end through a reader's answers. Label-free contenders - search-all routing, confidence routing, late chunking, contextual chunks and section-aware chunks indexed with their titles - run against section-aware with the oracle router as the ceiling, on nomic-embed-text-v1.5 and judged in the budget view. The success bar and the tie-break between contenders were fixed before any run, and section-aware stays if nothing clears them. On retrieval one contender beats section-aware - the same chunks indexed with the dataset's own document and section titles, which clears the pre-registered bar ([v2 so far](#v2-so-far-routing-or-better-indexing)) - so the advice above stands with that header in front of the chunks; answer accuracy is measured with a local Qwen3-8B as the reader on section-aware, the oracle router and no retrieval ([R14](results/v2/r14-answers.md), [R15](results/v2/r15-grader.md)), and the formal verdict is [R16](results/v2/r16-verdict.md). The settled decisions are recorded in [ADR 0005](docs/adr/0005-compare-routing-against-indexing-with-label-free-contenders-only.md) through [ADR 0009](docs/adr/0009-measure-answer-accuracy-with-glm-5-3-flash-as-the-reader.md).
+**How v2 got there:** it asked whether the headroom v1 found comes from routing between chunkings or from indexing one chunking better, measured end to end through a reader's answers. Label-free contenders - search-all routing, confidence routing, late chunking, contextual chunks and section-aware chunks indexed with their titles - ran against section-aware with the oracle router as the ceiling, on nomic-embed-text-v1.5 and judged in the budget view, against a success bar and a tie-break fixed before any run. The settled decisions are recorded in [ADR 0005](docs/adr/0005-compare-routing-against-indexing-with-label-free-contenders-only.md) through [ADR 0009](docs/adr/0009-measure-answer-accuracy-with-glm-5-3-flash-as-the-reader.md), and the results in the [v2 write-up](chunking/2026-10-18-v2-results.md).
 
 ## Limitations
 
 - v1 measured retrieval only; v2 measures answers for three setups (section-aware, the oracle router, no retrieval) with one local reader ([R14](results/v2/r14-answers.md)), never per contender.
 - The perfect router picks in hindsight from seven chunkings, so part of the headroom is noise.
-- Two English sources (NLP papers and Wikipedia), one run per setup, one reranker depth (30), one fusion constant (k = 60).
+- Two English sources (NLP papers and Wikipedia), one run per setup, one reranker depth (30; v2's depth-50 side run leaves its verdict unchanged), one fusion constant (k = 60).
 - The reranker orders only the top 30; section-aware often packs chunks from past rank 30, so a deeper rerank could shift its margin either way.
 - bge-small reads only 512 tokens and embeds longer chunks truncated; nomic reads 8192 and gives recalls within a few thousandths, so truncation moves no conclusion.
 - The tables over one combined index of both datasets are BM25-only; the router decision pools the two per-dataset runs instead.
 
-The write-up's [limitations section](chunking/2026-10-14-v1-results.md#5-limitations) has the details.
+The write-ups' limitations sections have the details: [v1](chunking/2026-10-14-v1-results.md#5-limitations), [v2](chunking/2026-10-18-v2-results.md#7-limitations).
 
 ## Repository map
 
-- [`chunking/2026-10-14-v1-results.md`](chunking/2026-10-14-v1-results.md): the v1 results write-up; its figures are in [`chunking/figures/`](chunking/figures).
+- [`chunking/2026-10-18-v2-results.md`](chunking/2026-10-18-v2-results.md): the v2 results write-up (routing or indexing), and [`chunking/2026-10-14-v1-results.md`](chunking/2026-10-14-v1-results.md), the v1 results write-up; their figures are in [`chunking/figures/`](chunking/figures).
 - [`chunking/2026-10-10-chunk-size-vs-query-type.md`](chunking/2026-10-10-chunk-size-vs-query-type.md): the research report that motivated v1, covering the literature on chunk size versus query type, budget-matched evaluation, and a QASPER pilot.
 - [`results/`](results): the committed result tables (`qasper/`, `nq/`, `pooled/`, `routing/`, `v2/`) and the context-prefix manifest (`prefixes/`); every number above comes from the tables.
 - [`configs/`](configs): the run configurations, the committed context-prefix and grader prompts, and the committed id lists (the Natural Questions subset, the v2 reader sample).
@@ -154,13 +165,13 @@ Unit tests run offline on small committed fixtures: `uv run pytest`.
 
 ## Reproduce the results
 
-### Re-render the write-up from the committed tables
+### Re-render the write-ups from the committed tables
 
-The write-up's tables and figures are regenerated from `results/` without running any retrieval:
+Both write-ups' tables and figures (v1 and v2) are regenerated from `results/` without running any retrieval, reader or bootstrap:
 
 ```sh
-uv run rag writeup          # re-render the write-up's tables and figures
-uv run rag writeup --check  # change nothing; fail if the write-up or a figure differs from results/
+uv run rag writeup          # re-render the write-ups' tables and figures
+uv run rag writeup --check  # change nothing; fail if a write-up or a figure differs from results/
 ```
 
 ### Tracer experiment
@@ -376,5 +387,6 @@ No dataset text is committed; the repository holds only identifiers, character o
 | embedder | [nomic-ai/nomic-embed-text-v1.5](https://huggingface.co/nomic-ai/nomic-embed-text-v1.5) (Nomic AI) | 8192 tokens | Apache-2.0 |
 | reranker | [Alibaba-NLP/gte-reranker-modernbert-base](https://huggingface.co/Alibaba-NLP/gte-reranker-modernbert-base) (Alibaba-NLP) | n/a | Apache-2.0 |
 | context prefixes and reader (v2) | [mlx-community/Qwen3-8B-4bit](https://huggingface.co/mlx-community/Qwen3-8B-4bit) (Qwen3-8B by the Qwen team, Alibaba Cloud; 4-bit MLX conversion) | n/a | Apache-2.0 |
+| grader of the model-graded check (v2) | Claude Sonnet (Anthropic), through the `claude` command-line tool | n/a | proprietary |
 
-The v1 models' pinned revisions are listed in the write-up's [data, models and licences section](chunking/2026-10-14-v1-results.md#data-models-and-licences); the prefix model's is in [`configs/prefixes.yaml`](configs/prefixes.yaml), and the reader's (the same revision) in [`configs/v2/answers.yaml`](configs/v2/answers.yaml). The model-graded check uses Claude Sonnet through the `claude` command-line tool; the model that served each verdict is recorded in `results/v2/grader-manifest.json`.
+The pinned revisions are listed in the write-ups' data, models and licences sections ([v1](chunking/2026-10-14-v1-results.md#data-models-and-licences), [v2](chunking/2026-10-18-v2-results.md#data-models-and-licences)); the prefix model's is in [`configs/prefixes.yaml`](configs/prefixes.yaml), and the reader's (the same revision) in [`configs/v2/answers.yaml`](configs/v2/answers.yaml). The model-graded check uses Claude Sonnet through the `claude` command-line tool; the model that served each verdict is recorded in `results/v2/grader-manifest.json`.

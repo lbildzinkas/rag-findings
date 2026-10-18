@@ -1,0 +1,85 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="760" height="402.0" viewBox="0 0 760 402.0" role="img" font-family="system-ui, -apple-system, 'Segoe UI', sans-serif">
+<title>Each contender's retrieval recall against section-aware</title>
+<desc>Pooled, QASPER and NQ differences per contender, in the pre-registered tie-break order, with the +0.02 pooled bar and the -0.01 per-dataset floor. Values from results/v2/r16-verdict.md.</desc>
+<rect width="760" height="402.0" fill="#fcfcfb"/>
+<text x="16.0" y="28.0" font-size="16" text-anchor="start" fill="#0b0b0b" font-weight="600">Each contender's retrieval recall against section-aware</text>
+<text x="16.0" y="48.0" font-size="12" text-anchor="start" fill="#52514e">Recall difference from section-aware with 95% CI; budget view, 1024 tokens, production line, nomic</text>
+<line x1="16.0" y1="68.0" x2="32.0" y2="68.0" stroke="#2a78d6" stroke-width="2"/>
+<circle cx="24.0" cy="68.0" r="4" fill="#2a78d6" stroke="#fcfcfb" stroke-width="2"/>
+<text x="38.0" y="72.0" font-size="12" text-anchor="start" fill="#0b0b0b">pooled</text>
+<line x1="100.0" y1="68.0" x2="116.0" y2="68.0" stroke="#eb6834" stroke-width="2"/>
+<circle cx="108.0" cy="68.0" r="4" fill="#eb6834" stroke="#fcfcfb" stroke-width="2"/>
+<text x="122.0" y="72.0" font-size="12" text-anchor="start" fill="#0b0b0b">QASPER</text>
+<line x1="184.0" y1="68.0" x2="200.0" y2="68.0" stroke="#1baf7a" stroke-width="2"/>
+<circle cx="192.0" cy="68.0" r="4" fill="#1baf7a" stroke="#fcfcfb" stroke-width="2"/>
+<text x="206.0" y="72.0" font-size="12" text-anchor="start" fill="#0b0b0b">NQ</text>
+<line x1="68.0" y1="350.0" x2="736.0" y2="350.0" stroke="#e1e0d9" stroke-width="1"/>
+<text x="62.0" y="354.0" font-size="11" text-anchor="end" fill="#52514e">-0.14</text>
+<line x1="68.0" y1="326.0" x2="736.0" y2="326.0" stroke="#e1e0d9" stroke-width="1"/>
+<text x="62.0" y="330.0" font-size="11" text-anchor="end" fill="#52514e">-0.12</text>
+<line x1="68.0" y1="302.0" x2="736.0" y2="302.0" stroke="#e1e0d9" stroke-width="1"/>
+<text x="62.0" y="306.0" font-size="11" text-anchor="end" fill="#52514e">-0.10</text>
+<line x1="68.0" y1="278.0" x2="736.0" y2="278.0" stroke="#e1e0d9" stroke-width="1"/>
+<text x="62.0" y="282.0" font-size="11" text-anchor="end" fill="#52514e">-0.08</text>
+<line x1="68.0" y1="254.0" x2="736.0" y2="254.0" stroke="#e1e0d9" stroke-width="1"/>
+<text x="62.0" y="258.0" font-size="11" text-anchor="end" fill="#52514e">-0.06</text>
+<line x1="68.0" y1="230.0" x2="736.0" y2="230.0" stroke="#e1e0d9" stroke-width="1"/>
+<text x="62.0" y="234.0" font-size="11" text-anchor="end" fill="#52514e">-0.04</text>
+<line x1="68.0" y1="206.0" x2="736.0" y2="206.0" stroke="#e1e0d9" stroke-width="1"/>
+<text x="62.0" y="210.0" font-size="11" text-anchor="end" fill="#52514e">-0.02</text>
+<line x1="68.0" y1="182.0" x2="736.0" y2="182.0" stroke="#c3c2b7" stroke-width="1"/>
+<text x="62.0" y="186.0" font-size="11" text-anchor="end" fill="#52514e">0.00</text>
+<line x1="68.0" y1="158.0" x2="736.0" y2="158.0" stroke="#e1e0d9" stroke-width="1"/>
+<text x="62.0" y="162.0" font-size="11" text-anchor="end" fill="#52514e">+0.02</text>
+<line x1="68.0" y1="134.0" x2="736.0" y2="134.0" stroke="#e1e0d9" stroke-width="1"/>
+<text x="62.0" y="138.0" font-size="11" text-anchor="end" fill="#52514e">+0.04</text>
+<line x1="68.0" y1="110.0" x2="736.0" y2="110.0" stroke="#e1e0d9" stroke-width="1"/>
+<text x="62.0" y="114.0" font-size="11" text-anchor="end" fill="#52514e">+0.06</text>
+<line x1="68.0" y1="158.0" x2="736.0" y2="158.0" stroke="#52514e" stroke-width="1"/>
+<text x="72.0" y="153.0" font-size="11" text-anchor="start" fill="#0b0b0b">bar: +0.02 pooled</text>
+<line x1="68.0" y1="194.0" x2="736.0" y2="194.0" stroke="#52514e" stroke-width="1"/>
+<text x="72.0" y="189.0" font-size="11" text-anchor="start" fill="#0b0b0b">floor: -0.01 per dataset</text>
+<text x="123.7" y="366.0" font-size="11" text-anchor="middle" fill="#52514e">late-128</text>
+<text x="235.0" y="366.0" font-size="11" text-anchor="middle" fill="#52514e">late-256</text>
+<text x="346.3" y="366.0" font-size="11" text-anchor="middle" fill="#52514e">confidence routing</text>
+<text x="457.7" y="366.0" font-size="11" text-anchor="middle" fill="#52514e">search-all routing</text>
+<text x="569.0" y="366.0" font-size="11" text-anchor="middle" fill="#52514e">contextual-256</text>
+<text x="680.3" y="366.0" font-size="11" text-anchor="middle" fill="#52514e">section-aware-titles</text>
+<text x="402.0" y="386.0" font-size="11" text-anchor="middle" fill="#52514e">contender (pre-registered order, simplest first; section-aware-titles joined last)</text>
+<line x1="111.7" y1="279.2" x2="111.7" y2="249.3" stroke="#2a78d6" stroke-width="2"/>
+<circle cx="111.7" cy="264.3" r="4" fill="#2a78d6" stroke="#fcfcfb" stroke-width="2"><title>pooled, late-128: -0.0686 [-0.0810, -0.0561]</title></circle>
+<line x1="223.0" y1="266.8" x2="223.0" y2="237.0" stroke="#2a78d6" stroke-width="2"/>
+<circle cx="223.0" cy="251.7" r="4" fill="#2a78d6" stroke="#fcfcfb" stroke-width="2"><title>pooled, late-256: -0.0581 [-0.0707, -0.0458]</title></circle>
+<line x1="334.3" y1="245.2" x2="334.3" y2="220.2" stroke="#2a78d6" stroke-width="2"/>
+<circle cx="334.3" cy="232.6" r="4" fill="#2a78d6" stroke="#fcfcfb" stroke-width="2"><title>pooled, confidence routing: -0.0422 [-0.0527, -0.0318]</title></circle>
+<line x1="445.7" y1="226.4" x2="445.7" y2="197.5" stroke="#2a78d6" stroke-width="2"/>
+<circle cx="445.7" cy="212.0" r="4" fill="#2a78d6" stroke="#fcfcfb" stroke-width="2"><title>pooled, search-all routing: -0.0250 [-0.0370, -0.0129]</title></circle>
+<line x1="557.0" y1="218.4" x2="557.0" y2="189.0" stroke="#2a78d6" stroke-width="2"/>
+<circle cx="557.0" cy="203.5" r="4" fill="#2a78d6" stroke="#fcfcfb" stroke-width="2"><title>pooled, contextual-256: -0.0179 [-0.0303, -0.0058]</title></circle>
+<line x1="668.3" y1="166.6" x2="668.3" y2="142.3" stroke="#2a78d6" stroke-width="2"/>
+<circle cx="668.3" cy="154.6" r="4" fill="#2a78d6" stroke="#fcfcfb" stroke-width="2"><title>pooled, section-aware-titles: +0.0228 [+0.0128, +0.0331]</title></circle>
+<line x1="123.7" y1="263.4" x2="123.7" y2="228.6" stroke="#eb6834" stroke-width="2"/>
+<circle cx="123.7" cy="246.1" r="4" fill="#eb6834" stroke="#fcfcfb" stroke-width="2"><title>QASPER, late-128: -0.0534 [-0.0678, -0.0388]</title></circle>
+<line x1="235.0" y1="259.0" x2="235.0" y2="224.6" stroke="#eb6834" stroke-width="2"/>
+<circle cx="235.0" cy="241.6" r="4" fill="#eb6834" stroke="#fcfcfb" stroke-width="2"><title>QASPER, late-256: -0.0497 [-0.0642, -0.0355]</title></circle>
+<line x1="346.3" y1="242.2" x2="346.3" y2="213.3" stroke="#eb6834" stroke-width="2"/>
+<circle cx="346.3" cy="227.8" r="4" fill="#eb6834" stroke="#fcfcfb" stroke-width="2"><title>QASPER, confidence routing: -0.0382 [-0.0502, -0.0261]</title></circle>
+<line x1="457.7" y1="222.4" x2="457.7" y2="189.9" stroke="#eb6834" stroke-width="2"/>
+<circle cx="457.7" cy="206.0" r="4" fill="#eb6834" stroke="#fcfcfb" stroke-width="2"><title>QASPER, search-all routing: -0.0200 [-0.0337, -0.0066]</title></circle>
+<line x1="569.0" y1="212.8" x2="569.0" y2="179.0" stroke="#eb6834" stroke-width="2"/>
+<circle cx="569.0" cy="196.0" r="4" fill="#eb6834" stroke="#fcfcfb" stroke-width="2"><title>QASPER, contextual-256: -0.0117 [-0.0257, +0.0025]</title></circle>
+<line x1="680.3" y1="175.4" x2="680.3" y2="148.3" stroke="#eb6834" stroke-width="2"/>
+<circle cx="680.3" cy="161.8" r="4" fill="#eb6834" stroke="#fcfcfb" stroke-width="2"><title>QASPER, section-aware-titles: +0.0168 [+0.0055, +0.0281]</title></circle>
+<line x1="135.7" y1="333.8" x2="135.7" y2="275.5" stroke="#1baf7a" stroke-width="2"/>
+<circle cx="135.7" cy="304.4" r="4" fill="#1baf7a" stroke="#fcfcfb" stroke-width="2"><title>NQ, late-128: -0.1020 [-0.1265, -0.0779]</title></circle>
+<line x1="247.0" y1="302.8" x2="247.0" y2="243.7" stroke="#1baf7a" stroke-width="2"/>
+<circle cx="247.0" cy="273.8" r="4" fill="#1baf7a" stroke="#fcfcfb" stroke-width="2"><title>NQ, late-256: -0.0765 [-0.1007, -0.0514]</title></circle>
+<line x1="358.3" y1="267.9" x2="358.3" y2="218.8" stroke="#1baf7a" stroke-width="2"/>
+<circle cx="358.3" cy="243.3" r="4" fill="#1baf7a" stroke="#fcfcfb" stroke-width="2"><title>NQ, confidence routing: -0.0511 [-0.0716, -0.0307]</title></circle>
+<line x1="469.7" y1="255.2" x2="469.7" y2="195.8" stroke="#1baf7a" stroke-width="2"/>
+<circle cx="469.7" cy="225.2" r="4" fill="#1baf7a" stroke="#fcfcfb" stroke-width="2"><title>NQ, search-all routing: -0.0360 [-0.0610, -0.0115]</title></circle>
+<line x1="581.0" y1="249.4" x2="581.0" y2="191.1" stroke="#1baf7a" stroke-width="2"/>
+<circle cx="581.0" cy="220.0" r="4" fill="#1baf7a" stroke="#fcfcfb" stroke-width="2"><title>NQ, contextual-256: -0.0317 [-0.0562, -0.0076]</title></circle>
+<line x1="692.3" y1="163.6" x2="692.3" y2="113.2" stroke="#1baf7a" stroke-width="2"/>
+<circle cx="692.3" cy="138.7" r="4" fill="#1baf7a" stroke="#fcfcfb" stroke-width="2"><title>NQ, section-aware-titles: +0.0361 [+0.0153, +0.0573]</title></circle>
+</svg>
